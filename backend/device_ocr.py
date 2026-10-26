@@ -20,11 +20,17 @@ class DeviceRecognizer:
                 for day,cell in enumerate(layout.cells):
                     self.read_punches(layout,day,punch_crops(clean_ink(cell)))
 
-    def read(self,image,mode='text'):
+    @staticmethod
+    def _key(image,mode):
         image=image.convert('RGB')
-        key=hashlib.sha256(mode.encode()+str(image.size).encode()+image.tobytes()).hexdigest()
+        return hashlib.sha256(mode.encode()+str(image.size).encode()+image.tobytes()).hexdigest()
+
+    def read(self,image,mode='text',required=True):
+        image=image.convert('RGB')
+        key=self._key(image,mode)
         if self.readings is None:
-            self.tasks[key]={'id':key,'image':png_data(image)}
+            if key not in self.tasks:self.tasks[key]={'id':key,'image':png_data(image),'required':required}
+            elif required:self.tasks[key]['required']=True
             return Reading('',0)
         value=self.readings.get(key)
         if value is None:raise ValueError('Device readings are incomplete. Process the photo again.')
@@ -38,11 +44,20 @@ class DeviceRecognizer:
         originals=photo_punch_crops(layout.cells[day],clean_ink(layout.cells[day]))
         result=[]
         for original,cleaned in zip(originals,punches):
-            groups=[]
-            for source,image in [('original_punch',original),('cleaned_punch',cleaned)]:
-                reading=self.read(image,'time')
-                groups.append((source,[{'text':reading.raw_text,'confidence':reading.confidence}]))
-            result.append(choose_reading(groups))
+            original_id=self._key(original,'time');cleaned_id=self._key(cleaned,'time')
+            first=self.read(original,'time')
+            second=self.read(cleaned,'time',required=False)
+            if self.readings is None:
+                if cleaned_id!=original_id:
+                    parents=self.tasks[cleaned_id].setdefault('fallback_for',[])
+                    if original_id not in parents:parents.append(original_id)
+            skipped=self.readings is not None and self.readings.get(cleaned_id,{}).get('skipped_reason')=='original_valid'
+            if skipped and not clock_text(first.raw_text):
+                raise ValueError('A fallback crop can only be skipped after a valid original punch.')
+            reading=choose_reading([('original_punch',[{'text':first.raw_text,'confidence':first.confidence}]),
+                                    ('cleaned_punch',[{'text':second.raw_text,'confidence':second.confidence}])])
+            reading.cross_check_skipped=bool(skipped)
+            result.append(reading)
         return result
 
 

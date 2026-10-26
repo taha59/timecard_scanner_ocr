@@ -61,3 +61,12 @@ def test_upload_never_spools_to_disk_or_creates_debug_crops(monkeypatch,tmp_path
     response=app.test_client().post('/api/scan',data={'image':(BytesIO(data),'photo.jpg'),'manual':'true'})
     assert response.status_code==200
     assert not (tmp_path/'debug').exists()
+
+
+def test_browser_isolation_headers_keep_cors_intact(production):
+    page=production.get('/')
+    assert page.headers['Cross-Origin-Opener-Policy']=='same-origin'
+    assert page.headers['Cross-Origin-Embedder-Policy']=='require-corp'
+    api=production.get('/api/health',headers={'Origin':ORIGIN})
+    assert api.headers['Access-Control-Allow-Origin']==ORIGIN
+    assert api.headers['Cache-Control']=='no-store'

@@ -1,0 +1,24 @@
+const assert=require('node:assert/strict'),{JSDOM}=require('../frontend/node_modules/jsdom'),{buildSync}=require('../frontend/node_modules/esbuild');
+const w=new JSDOM('',{url:'https://app.example',runScripts:'outside-only'}).window;
+w.Headers=Headers;w.AbortController=AbortController;w.AbortSignal=AbortSignal;
+const instances=[];let cacheReads=0;
+w.caches={open:async()=>({match:async()=>({arrayBuffer:async()=>{cacheReads++;return new ArrayBuffer(2);}})})};
+w.Worker=class{constructor(){this.sent=[];this.terminated=false;instances.push(this);}postMessage(value){this.sent.push(value);}terminate(){this.terminated=true;}complete(){this.onmessage?.({data:{readings:{a:{text:'9:00am',confidence:.79}},stats:{reused:this.sent.length>1}}});}};
+w.eval(buildSync({entryPoints:['frontend/src/device-ocr.ts'],bundle:true,write:false,format:'iife',globalName:'device',define:{'import.meta.env':'{}','import.meta.url':'"https://app.example/worker.js"'},logLevel:'silent'}).outputFiles[0].text+';window.device=device;');
+const m={version:'test',sha256:'hash'},tasks=[{id:'a',image:'data:test'}],tick=()=>new Promise(r=>setImmediate(r));
+(async()=>{
+ let first=w.device.recognizeOnDevice(m,tasks,new AbortController().signal,()=>{});await tick();
+ assert.equal(instances.length,1);assert.ok(instances[0].sent[0].model instanceof ArrayBuffer);
+ instances[0].complete();await first;
+ let second=w.device.recognizeOnDevice(m,tasks,new AbortController().signal,()=>{});await tick();
+ assert.equal(instances.length,1);assert.equal(cacheReads,1);assert.equal(instances[0].sent[1].model,undefined);
+ instances[0].complete();await second;
+ const controller=new AbortController();let canceled=w.device.recognizeOnDevice(m,tasks,controller.signal,()=>{});await tick();controller.abort();
+ await assert.rejects(canceled,e=>e.name==='AbortError');assert.equal(instances[0].terminated,true);
+ let retry=w.device.recognizeOnDevice(m,tasks,new AbortController().signal,()=>{});await tick();assert.equal(instances.length,2);
+ instances[1].complete();await retry;
+ const pending=w.device.recognizeOnDevice(m,tasks,new AbortController().signal,()=>{});await tick();w.dispatchEvent(new w.Event('pagehide'));
+ await assert.rejects(pending,e=>e.name==='AbortError');assert.equal(instances[1].terminated,true);
+ w.device.releaseDeviceModel();w.close();
+ console.log('PASS: repeat scans reuse one model without re-reading weights; cancel/pagehide terminate it, and retry creates a fresh worker.');
+})().catch(e=>{console.error(e);w.device.releaseDeviceModel();w.close();process.exitCode=1;});

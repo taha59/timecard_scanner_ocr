@@ -2,7 +2,7 @@ import React,{useEffect,useRef,useState} from 'react';
 import {createRoot} from 'react-dom/client';
 import './style.css';
 import {apiFetch,setAccessToken,serverOcrEnabled,passwordRequired} from './api';
-import {deviceSupported,modelPresent,downloadModel,removeModel,recognizeOnDevice,type ModelManifest} from './device-ocr';
+import {deviceSupported,modelPresent,downloadModel,removeModel,recognizeOnDevice,type ModelManifest,type DeviceOcrStats} from './device-ocr';
 
 type Amount={hm:string|null;decimal:string|null;minutes:number|null};
 type Day={label:string;status:string;in:string;out:string;adjustment_hours:string;adjustment_confirmed:boolean;reviewed:boolean;note:string;image:string;note_image:string;punch_images:string[];computed:Amount;flags:string[]};
@@ -21,6 +21,7 @@ function App(){
  const [ocrMode,setOcrMode]=useState<'server'|'device'>(serverOcrEnabled?'server':'device');
  const [manifest,setManifest]=useState<ModelManifest|null>(null),[modelReady,setModelReady]=useState(false),[modelBusy,setModelBusy]=useState(false),[progress,setProgress]=useState('');
  const [accessGranted,setAccessGranted]=useState(!passwordRequired),[password,setPassword]=useState(''),[accessBusy,setAccessBusy]=useState(false);
+ const [scanTiming,setScanTiming]=useState('');
  const supported=deviceSupported();
  async function unlock(event:React.FormEvent){event.preventDefault();setAccessBusy(true);setError('');setAccessToken(password);try{await api('/api/access',{method:'GET'});setAccessGranted(true);setPassword('');}catch(e){setAccessToken('');setError((e as Error).message);}finally{setAccessBusy(false);}}
  useEffect(()=>{if(!supported||!accessGranted)return;let canceled=false;apiFetch('/api/device-model').then(r=>{if(!r.ok)throw new Error('Model information unavailable');return r.json();}).then(async m=>{const ready=await modelPresent(m);if(!canceled){setManifest(m);setModelReady(ready);}}).catch(()=>{if(!canceled)setManifest(null);});return()=>{canceled=true;};},[accessGranted]);
@@ -69,10 +70,10 @@ function App(){
   return()=>{cancelled=true;image.onload=null;image.onerror=null;URL.revokeObjectURL(originalUrl);if(rotatedUrl)URL.revokeObjectURL(rotatedUrl);};
  },[file,rotation]);
  useEffect(()=>()=>{if(timer.current)clearTimeout(timer.current);abort.current?.abort();},[]);
- function accept(f:File){if(!f.type.startsWith('image/')){setError('Choose an image file.');return;}setFile(f);setRotation(0);setPreviewBusy(false);setMessage('');setError('');setCards([]);setExpandedCards({});setScanId('');revision.current++;abort.current?.abort();if(timer.current)clearTimeout(timer.current);setPending(false);}
+ function accept(f:File){if(!f.type.startsWith('image/')){setError('Choose an image file.');return;}setScanTiming('');setFile(f);setRotation(0);setPreviewBusy(false);setMessage('');setError('');setCards([]);setExpandedCards({});setScanId('');revision.current++;abort.current?.abort();if(timer.current)clearTimeout(timer.current);setPending(false);}
  function rotateSource(delta:number){
   if(!file||busy||previewBusy)return;
-  setRotation(previous=>(previous+delta+360)%360);setPreviewBusy(true);
+  setScanTiming('');setRotation(previous=>(previous+delta+360)%360);setPreviewBusy(true);
   setError('');setMessage('');setCards([]);setExpandedCards({});setScanId('');setInspect(null);
   revision.current++;abort.current?.abort();if(timer.current)clearTimeout(timer.current);setPending(false);
  }
@@ -86,7 +87,7 @@ function App(){
   finally{if(rev===revision.current){setBusy(false);setModelBusy(false);setProgress('');abort.current=null;}}
  }
  async function forgetModel(){try{await removeModel();setModelReady(false);setMessage('Downloaded model removed from this browser.');}catch{setError('Could not remove the saved model. Try again.');}}
- async function scan(manual=false){if(busy||!file||previewBusy||!preview||(!manual&&ocrMode==='device'&&!modelReady))return;setCards([]);setExpandedCards({});setInspect(null);setScanId('');setProgress('');setBusy(true);setError('');setMessage('');const rev=++revision.current;
+ async function scan(manual=false){if(busy||!file||previewBusy||!preview||(!manual&&ocrMode==='device'&&!modelReady))return;setCards([]);setExpandedCards({});setInspect(null);setScanId('');setScanTiming('');setProgress('');setBusy(true);setError('');setMessage('');const rev=++revision.current;
   abort.current?.abort();if(timer.current)clearTimeout(timer.current);setPending(false);
   const controller=new AbortController();abort.current=controller;
   const form=new FormData();form.append('image',file);form.append('rotation',String(rotation));if(manual)form.append('manual','true');
@@ -95,11 +96,14 @@ function App(){
    if(!manual&&ocrMode==='device'){
     if(!manifest||!supported)throw new Error('Device OCR needs a supported browser over HTTPS. You can still use manual entry.');
     if(!await modelPresent(manifest)){setModelReady(false);throw new Error('The saved model is no longer available. Download it again before scanning.');}
+    const started=performance.now();let deviceStats:DeviceOcrStats|null=null;
     form.append('device','true');setProgress('Preparing crops on the server…');
     const prepared=await api('/api/scan',{method:'POST',body:form,signal:controller.signal});
-    const readings=await recognizeOnDevice(manifest,prepared.tasks,controller.signal,text=>{if(rev===revision.current)setProgress(text);});
+    const cropped=performance.now();
+    const readings=await recognizeOnDevice(manifest,prepared.tasks,controller.signal,text=>{if(rev===revision.current)setProgress(text);},stats=>{deviceStats=stats;});
     controller.signal.throwIfAborted();setProgress('Checking entries and calculating totals…');
     data=await api('/api/device-result',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({layouts:prepared.layouts,readings}),signal:controller.signal});
+    if(rev===revision.current&&deviceStats){const stats=deviceStats as DeviceOcrStats;setScanTiming(`Total ${((performance.now()-started)/1000).toFixed(2)}s · Crop preparation ${((cropped-started)/1000).toFixed(2)}s · Model startup ${(stats.loadMs/1000).toFixed(2)}s${stats.reused?' (reused)':''} · Reading ${(stats.readMs/1000).toFixed(2)}s${stats.threads?` (${stats.threads} thread${stats.threads===1?'':'s'})`:''} · ${stats.processed}/${stats.total} crops read · ${stats.skipped} fallback crops skipped`);}
    }else data=await api('/api/scan',{method:'POST',body:form,signal:controller.signal});
    if(rev!==revision.current)return;setCards(data.cards);setExpandedCards({});setScanId(data.scan_id);setMessage(data.message);
   }catch(e){if(rev===revision.current&&(e as Error).name!=='AbortError')setError((e as Error).message);}finally{if(rev===revision.current){setBusy(false);setProgress('');if(abort.current===controller)abort.current=null;}}
@@ -118,7 +122,8 @@ function App(){
  const reviewed=cards.reduce((n,c)=>n+c.days.filter(d=>d.reviewed).length,0);
  const resultsBlocked=pending||Boolean(error);
  const current=inspect?cards[inspect.ci]?.days[inspect.di]:null;
- if(!accessGranted)return <main className="access-panel"><h1>Timecard access</h1><p>Enter the private app password. It stays in memory until you close or refresh this page.</p><form onSubmit={unlock}><label>Access password<input type="password" autoComplete="current-password" required value={password} onChange={e=>setPassword(e.target.value)}/></label><button className="primary" disabled={accessBusy}>{accessBusy?'Checking…':'Unlock app'}</button></form><div role="alert">{error}</div></main>;
+ if(!accessGranted)return <main className="access-panel"><h1>Timecard access</h1><p>Enter the private app password. It stays in memory until you close or refresh this page.</p><form onSubmit={unlock}><label>Access password<input type="password" autoComplete="current-password" required value={password} onChange={e=>setPassword(e.target.value)}/></label><button className="primary" disabled={accessBusy}>{accessBusy?'Checking…':'Unlock app'}</button></form>{scanTiming&&<details className="scan-timing"><summary>Scan timing</summary><p>{scanTiming}</p></details>}
+ <div role="alert">{error}</div></main>;
  return <><header><a className="brand" href="/">▦ <span>Timecard</span><span className="brand-sub">PAYROLL REVIEW</span></a><span className="local-pill">Local OCR · Human review</span></header>
  <main><div className="intro"><div className="eyebrow">FROM PAPER TO PUNCHES</div><h1>Read the card.<br/><span>Verify the hours.</span></h1><p>Extract handwritten punches, inspect the originals, and calculate every minute from the times you approve.</p></div>
  <section className="upload-panel" aria-label="Upload timecards"><div className="step">01 / SOURCE PHOTO</div><div className="upload-grid"><div className="drop" onDragOver={e=>e.preventDefault()} onDrop={e=>{e.preventDefault();if(!busy&&e.dataTransfer.files[0])accept(e.dataTransfer.files[0]);}}><span className="upload-icon">↥</span><strong>Drop your timecard photo here</strong><span>One photo, one or more TOPS 1256 cards</span><label className="file-button">Choose photo<input type="file" accept="image/*" disabled={busy} onChange={e=>e.target.files?.[0]&&accept(e.target.files[0])}/></label>{file&&<small>{file.name}</small>}</div><div className="source-column"><div className="source-preview" aria-busy={previewBusy}>{preview?<a href={preview} target="_blank" rel="noreferrer"><img src={preview} alt={`Uploaded timecard photograph, rotated ${rotation} degrees clockwise; open preview`}/></a>:<div><span>▤</span><p>Your source stays beside the results.<br/>No handwritten total drives the calculation.</p></div>}</div>{file&&<div className="rotation-controls" aria-label="Source photo rotation"><button type="button" onClick={()=>rotateSource(-90)} disabled={busy||previewBusy} aria-label="Rotate photo left 90 degrees">↶ Rotate left 90°</button><button type="button" onClick={()=>rotateSource(90)} disabled={busy||previewBusy} aria-label="Rotate photo right 90 degrees">↷ Rotate right 90°</button><span aria-live="polite">{previewBusy?'Updating preview…':`Rotation: ${rotation}°`}</span></div>}</div></div><fieldset className="ocr-choice" disabled={busy}><legend>Where should handwriting be read?</legend>{serverOcrEnabled&&<label><input type="radio" name="ocr-mode" checked={ocrMode==='server'} onChange={()=>{setOcrMode('server');setError('');}}/> Server OCR <small>Use the server’s existing local model.</small></label>}<label><input type="radio" name="ocr-mode" checked={ocrMode==='device'} onChange={()=>{setOcrMode('device');setError('');}}/> This device <small>Download once, then read handwriting on your phone or computer.</small></label></fieldset>
@@ -128,6 +133,7 @@ function App(){
  <details><summary>Add to your Home Screen</summary><p>iPhone: open in Safari, tap Share, then Add to Home Screen. Android: open the Chrome menu and choose Add to Home screen or Install app. HTTPS is required. The saved model can still be removed by browser storage cleanup.</p></details>
  </div>}
  <div className="actions"><button className="primary" onClick={()=>scan()} disabled={!file||busy||previewBusy||!preview||(ocrMode==='device'&&(!supported||!modelReady))}>{busy?(modelBusy?'Downloading model…':'Processing photo…'):ocrMode==='device'?'Scan on this device →':'Scan with local OCR →'}</button><button onClick={()=>scan(true)} disabled={!file||busy||previewBusy||!preview}>Extract crops for manual entry</button>{busy&&<button type="button" onClick={cancelScan}>Cancel processing</button>}<span>Notes are added only after confirmation.</span></div>{progress&&<p role="status" className="notice">{progress}</p>}</section>
+ {scanTiming&&<details className="scan-timing"><summary>Scan timing</summary><p>{scanTiming}</p></details>}
  <div role="alert">{error&&<p className="error">{error}</p>}</div><div aria-live="polite">{message&&<p className="notice">{message}</p>}</div>
  {cards.length>0&&<><div className="review-heading"><div><div className="eyebrow">02 / VERIFY & CORRECT</div><h2>{cards.length} cards to review</h2><p>{reviewed} of {cards.length*7} day rows marked reviewed. Inspect both punches and notes.</p></div><span className={pending?'pill pending':'pill'} role="status">{pending?'Recalculating…':error?'Calculation requires attention':'Calculated by Python'}</span></div>
  {cards.map((card,ci)=>{const expanded=expandedCards[card.id]??ci===0;return <section className="card" key={`${scanId}-${card.id}`}><div className="card-heading"><span className="card-index">{String(ci+1).padStart(2,'0')}</span><label className="name-label">Employee name<input aria-label={`Card ${ci+1} employee name`} value={card.name} placeholder="Enter employee name" onChange={e=>editCard(ci,{name:e.target.value})}/></label><span className="pill">{card.needs_review?'Review required':'Rows reviewed'}</span><button className="card-toggle" aria-label={`${expanded?'Collapse':'Expand'} employee ${ci+1}`} aria-expanded={expanded} aria-controls={`card-body-${card.id}`} onClick={()=>setExpandedCards(previous=>({...previous,[card.id]:!expanded}))}><span aria-hidden="true">{expanded?'▾':'▸'}</span> {expanded?'Hide details':'Show details'}</button></div>

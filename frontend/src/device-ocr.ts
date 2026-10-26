@@ -1,11 +1,13 @@
 import {apiFetch} from './api';
+import type {CropReading,CropTask} from './ocr-policy';
 export type ModelManifest={version:string;bytes:number;sha256:string;url:string;characters:string[]};
-export type DeviceTask={id:string;image:string};
+export type DeviceOcrStats={loadMs:number;readMs:number;total:number;processed:number;skipped:number;reused:boolean;threads?:number};
+export type DeviceTask=CropTask;
 export const MODEL_CACHE='timecard-device-model-v1';
 const modelKey=(m:ModelManifest)=>`/device-model-cache/${m.version}/${m.sha256}`;
 export function deviceSupported(){return window.isSecureContext&&'caches' in window&&'Worker' in window&&'WebAssembly' in window&&'OffscreenCanvas' in window;}
 export async function modelPresent(m:ModelManifest){return deviceSupported()&&Boolean(await (await caches.open(MODEL_CACHE)).match(modelKey(m)));}
-export async function removeModel(){await caches.delete(MODEL_CACHE);}
+export async function removeModel(){releaseDeviceModel();await caches.delete(MODEL_CACHE);}
 export async function downloadModel(m:ModelManifest,signal:AbortSignal,progress:(text:string)=>void){
  const cache=await caches.open(MODEL_CACHE);
  const response=await apiFetch(m.url,{signal,cache:'no-store'});
@@ -22,19 +24,64 @@ export async function downloadModel(m:ModelManifest,signal:AbortSignal,progress:
  // The browser decides whether persistence can be granted; denial is not an error.
  try{await navigator.storage?.persist?.();}catch{}
 }
-export async function recognizeOnDevice(m:ModelManifest,tasks:DeviceTask[],signal:AbortSignal,progress:(text:string)=>void){
- const cached=await (await caches.open(MODEL_CACHE)).match(modelKey(m));
- if(!cached)throw new Error('The saved model is no longer available. Download it again before scanning.');
- const model=await cached.arrayBuffer();signal.throwIfAborted();
- const worker=new Worker(new URL('./ocr.worker.ts',import.meta.url),{type:'module'});
- return await new Promise<Record<string,{text:string;confidence:number}>>((resolve,reject)=>{
-  const stop=()=>{worker.terminate();signal.removeEventListener('abort',cancel);};
-  const cancel=()=>{stop();reject(new DOMException('Canceled','AbortError'));};
+let currentWorker:Worker|null=null,workerKey='',workerReady=false,inFlight=false;
+let idleTimer:ReturnType<typeof setTimeout>|undefined;
+let cancelActive:(()=>void)|null=null;
+function discardWorker(){
+ if(idleTimer)clearTimeout(idleTimer);idleTimer=undefined;
+ currentWorker?.terminate();currentWorker=null;workerKey='';workerReady=false;
+}
+export function releaseDeviceModel(){const cancel=cancelActive;cancelActive=null;cancel?.();discardWorker();}
+window.addEventListener('pagehide',releaseDeviceModel);
+function abortable<T>(work:Promise<T>,signal:AbortSignal){
+ return new Promise<T>((resolve,reject)=>{
+  const cancel=()=>{signal.removeEventListener('abort',cancel);reject(new DOMException('Canceled','AbortError'));};
   signal.addEventListener('abort',cancel,{once:true});
   if(signal.aborted){cancel();return;}
-  worker.onerror=()=>{stop();reject(new Error('Device OCR could not run. Try manual entry or a newer browser.'));};
-  worker.onmessage=event=>{const data=event.data;if(data.progress)progress(data.progress);else if(data.error){stop();reject(new Error(data.error));}else if(data.readings){stop();resolve(data.readings);}};
-  progress('Loading the model on this device…');
-  worker.postMessage({model,tasks,characters:m.characters},[model]);
+  work.then(value=>{signal.removeEventListener('abort',cancel);resolve(value);},error=>{signal.removeEventListener('abort',cancel);reject(error);});
  });
+}
+export async function recognizeOnDevice(m:ModelManifest,tasks:DeviceTask[],signal:AbortSignal,progress:(text:string)=>void,report?:(stats:DeviceOcrStats)=>void){
+ if(inFlight)throw new Error('Another device scan is still running.');
+ signal.throwIfAborted();inFlight=true;
+ let worker:Worker|undefined;
+ try{
+  if(idleTimer)clearTimeout(idleTimer);idleTimer=undefined;
+  const key=modelKey(m);
+  const reuse=Boolean(currentWorker&&workerReady&&workerKey===key);
+  let model:ArrayBuffer|undefined;
+  if(!reuse){
+   releaseDeviceModel();
+   const cached=await (await caches.open(MODEL_CACHE)).match(key);
+   if(!cached)throw new Error('The saved model is no longer available. Download it again before scanning.');
+   model=await abortable(cached.arrayBuffer(),signal);signal.throwIfAborted();
+   currentWorker=new Worker(new URL('./ocr.worker.ts',import.meta.url),{type:'module'});workerKey=key;
+  }
+  worker=currentWorker!;
+  const active=worker;
+  return await new Promise<Record<string,CropReading>>((resolve,reject)=>{
+   const finish=(discard:boolean)=>{
+    signal.removeEventListener('abort',cancel);cancelActive=null;active.onmessage=null;active.onerror=null;
+    if(discard&&currentWorker===active)discardWorker();
+   };
+   const cancel=()=>{finish(true);reject(new DOMException('Canceled','AbortError'));};
+   cancelActive=cancel;
+   signal.addEventListener('abort',cancel,{once:true});
+   if(signal.aborted){cancel();return;}
+   active.onerror=()=>{finish(true);reject(new Error('Device OCR could not run. Try manual entry or a newer browser.'));};
+   active.onmessage=event=>{
+    const data=event.data;
+    if(data.progress)progress(data.progress);
+    else if(data.error){finish(true);reject(new Error(data.error));}
+    else if(data.readings){workerReady=true;report?.(data.stats);finish(false);resolve(data.readings);}
+   };
+   progress(reuse?'Using the already loaded device model…':'Loading the model on this device…');
+   active.postMessage({model,tasks,characters:model?m.characters:undefined},model?[model]:[]);
+  });
+ }catch(error){if(worker&&currentWorker===worker)releaseDeviceModel();throw error;}
+ finally{
+  inFlight=false;
+  // Retain only the loaded model, for at most five minutes between scans.
+  if(currentWorker)idleTimer=setTimeout(releaseDeviceModel,5*60*1000);
+ }
 }

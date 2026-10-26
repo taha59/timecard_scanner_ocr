@@ -1,0 +1,17 @@
+const assert=require('node:assert/strict'),vm=require('node:vm');
+const {buildSync}=require('../frontend/node_modules/esbuild');
+const context={};vm.createContext(context);
+vm.runInContext(buildSync({entryPoints:['frontend/src/ocr-policy.ts'],bundle:true,write:false,format:'iife',globalName:'policy'}).outputFiles[0].text,context);
+const {clearClock,skipFallback}=context.policy;
+const good={text:'10:25 AM',confidence:.79,quality:.97};
+assert.equal(clearClock(good),true);
+for(const text of ['24:00','9:65','0:30pm','13:00am','9:0','9:OOAM','9:00AM total','OFF'])assert.equal(clearClock({...good,text}),false,text);
+assert.equal(clearClock({...good,quality:.89}),false);
+assert.equal(clearClock({...good,quality:NaN}),false);
+assert.equal(clearClock({...good,quality:undefined}),false);
+assert.equal(skipFallback({id:'fallback',image:'',required:false,fallback_for:['a']},{a:good}),true);
+assert.equal(skipFallback({id:'fallback',image:'',required:true,fallback_for:['a']},{a:good}),false);
+assert.equal(skipFallback({id:'fallback',image:'',fallback_for:['a']},{a:good}),false);
+assert.equal(skipFallback({id:'fallback',image:'',required:false,fallback_for:['a','b']},{a:good}),false);
+assert.equal(skipFallback({id:'a',image:'',required:false,fallback_for:['a']},{a:good}),false);
+console.log('PASS: only high-quality, valid original clocks allow dependent fallback crops to be skipped; ambiguous, missing, primary and shared-required readings remain checked.');

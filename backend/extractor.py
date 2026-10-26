@@ -233,6 +233,7 @@ def extract(image,recognizer,layouts=None):
                  'raw_in':values[0].raw_text if values else '', 'raw_out':values[1].raw_text if values else '',
                  'ocr_alternatives':{'in':values[0].alternatives,'out':values[1].alternatives} if values else {},
                  'ocr_conflict':any(v.conflict for v in values),
+                 'ocr_cross_check_skipped':any(v.cross_check_skipped for v in values),
                  'status_confidence':status_read.confidence if status_read else .5,'status_guessed':True,'ink_fraction':fraction,
                  'ink_class':guessed,'raw_status':status_read.text if status_read else '', 'source':'ocr','reviewed':False,
                  'note':note.text,'adjustment_hours':adjustments[0] if len(adjustments)==1 else '0',

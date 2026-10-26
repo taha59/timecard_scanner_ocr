@@ -49,3 +49,23 @@ def test_device_noisy_blank_rows_have_prepared_punches(client):
     response=client.post('/api/device-result',json={'layouts':job['layouts'],'readings':readings})
     assert response.status_code==200
     assert all(d['status']=='worked' for c in response.json['cards'] for d in c['days'])
+
+
+def test_fallback_dependencies_and_skipped_readings(client):
+    job=prepare(client).json
+    tasks={task['id']:task for task in job['tasks']}
+    fallbacks=[task for task in tasks.values() if task.get('required') is False]
+    assert fallbacks
+    assert all(task.get('fallback_for') and all(parent in tasks and parent!=task['id'] for parent in task['fallback_for']) for task in fallbacks)
+    full={key:{'text':'10:00','confidence':.79} for key in tasks}
+    all_read=client.post('/api/device-result',json={'layouts':job['layouts'],'readings':full}).json
+    skipped={key:({'text':'','confidence':0,'skipped_reason':'original_valid'} if task.get('required') is False else full[key]) for key,task in tasks.items()}
+    response=client.post('/api/device-result',json={'layouts':job['layouts'],'readings':skipped})
+    assert response.status_code==200
+    for old,new in zip(all_read['cards'],response.json['cards']):
+        assert [(d['in'],d['out'],d['status']) for d in old['days']]==[(d['in'],d['out'],d['status']) for d in new['days']]
+        assert all(d['reviewed'] is False for d in new['days'])
+    assert any('Alternate OCR crop not checked: verify original crop' in d['flags'] for c in response.json['cards'] for d in c['days'])
+    for key,task in tasks.items():
+        if task.get('required') is not False:skipped[key]={'text':'not a clock','confidence':.2}
+    assert client.post('/api/device-result',json={'layouts':job['layouts'],'readings':skipped}).status_code==400

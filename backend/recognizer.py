@@ -23,6 +23,7 @@ class Reading:
     alternatives: list = field(default_factory=list)
     conflict: bool = False
     has_clock: bool = False
+    cross_check_skipped: bool = False
 
 
 def time_token_trie(tokenizer):

@@ -79,6 +79,9 @@ def create_app(recognizer=None):
                 response.headers['Access-Control-Allow-Methods']='GET, POST, OPTIONS'
                 response.headers['Access-Control-Allow-Headers']='Authorization, Content-Type'
                 response.headers['Access-Control-Max-Age']='600'
+        if not request.path.startswith('/api/'):
+            response.headers['Cross-Origin-Opener-Policy']='same-origin'
+            response.headers['Cross-Origin-Embedder-Policy']='require-corp'
         response.headers['X-Content-Type-Options']='nosniff'
         response.headers['Referrer-Policy']='no-referrer'
         return response
@@ -173,6 +176,10 @@ def create_app(recognizer=None):
         if not isinstance(readings,dict) or len(readings)>1000:raise ValueError('Invalid device readings')
         for value in readings.values():
             if not isinstance(value,dict) or not isinstance(value.get('text'),str) or len(value['text'])>500:raise ValueError('Invalid device text')
+            if value.get('skipped_reason') not in (None,'original_valid'):
+                raise ValueError('Invalid skipped crop reason')
+            if value.get('skipped_reason') and (value['text'] or value.get('confidence')!=0):
+                raise ValueError('Skipped crops must not contain invented readings')
             score=value.get('confidence')
             if isinstance(score,bool) or not isinstance(score,(int,float)) or not 0<=score<=1:raise ValueError('Invalid device confidence')
         cards=extract(None,DeviceRecognizer(readings),layouts=layouts)
