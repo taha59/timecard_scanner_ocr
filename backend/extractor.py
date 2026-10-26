@@ -198,10 +198,9 @@ def png_data(image):
     return 'data:image/png;base64,'+base64.b64encode(buf.getvalue()).decode()
 
 
-def extract(image,recognizer):
-    cards=[];debug=os.getenv('DEBUG_CROPS_DIR')
-    if debug: Path(debug).mkdir(parents=True,exist_ok=True)
-    layouts=detect_cards(image)
+def extract(image,recognizer,layouts=None):
+    cards=[]
+    if layouts is None:layouts=detect_cards(image)
     if hasattr(recognizer,'prepare'):
         recognizer.prepare(layouts)
     for ci,layout in enumerate(layouts):
@@ -240,9 +239,5 @@ def extract(image,recognizer):
                  'adjustment_confirmed':False, # Every notes area must be inspected, including failed OCR.
                  'image':png_data(cell),'note_image':png_data(layout.notes[di]),'punch_images':[png_data(p) for p in punches]}
             card['days'].append(row)
-            if debug:
-                cv2.imwrite(str(Path(debug)/f'card{ci+1}_day{di+1}.png'),cell)
-                cv2.imwrite(str(Path(debug)/f'card{ci+1}_day{di+1}_ink.png'),ink)
-                for pi,p in enumerate(punches):p.save(Path(debug)/f'card{ci+1}_day{di+1}_punch{pi+1}.png')
         cards.append(card)
     return cards

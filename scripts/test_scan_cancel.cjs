@@ -1,0 +1,34 @@
+const assert=require('node:assert/strict');
+const {JSDOM}=require('../frontend/node_modules/jsdom');
+const {buildSync}=require('../frontend/node_modules/esbuild');
+const dom=new JSDOM('<div id="root"></div>',{url:'http://localhost',runScripts:'outside-only'}),w=dom.window;
+global.window=w;global.document=w.document;global.HTMLElement=w.HTMLElement;global.MutationObserver=w.MutationObserver;
+w.AbortController=AbortController;w.Headers=Headers;w.URL.createObjectURL=()=> 'blob:test';w.URL.revokeObjectURL=()=>{};
+const requests=[];
+// Deliberately ignore abort to simulate a late server response.
+w.fetch=(url,options)=>new Promise(resolve=>requests.push({url,options,resolve}));
+w.eval(buildSync({entryPoints:['frontend/src/main.tsx'],bundle:true,write:false,format:'iife',loader:{'.css':'empty'},define:{'process.env.NODE_ENV':'"test"','import.meta.env':JSON.stringify({VITE_ENABLE_SERVER_OCR:'true',VITE_API_BASE_URL:'https://timecard-api.example/'})},jsx:'automatic'}).outputFiles[0].text);
+const {within,waitFor}=require('../frontend/node_modules/@testing-library/dom');
+const user=require('../frontend/node_modules/@testing-library/user-event').default.setup({document:w.document});
+const screen=within(w.document.body);
+(async()=>{
+ await waitFor(()=>screen.getByText('Choose photo'));
+ await user.upload(w.document.querySelector('input[type=file]'),new w.File(['test'],'test.png',{type:'image/png'}));
+ await user.click(screen.getByRole('button',{name:'Scan with local OCR →'}));
+ await user.click(screen.getByRole('button',{name:'Cancel processing'}));
+ assert.equal(requests[0].options.signal.aborted,true);
+ assert.equal(requests[0].url,'https://timecard-api.example/api/scan');
+ assert.equal(requests[0].options.credentials,'omit');
+ assert.equal(screen.getByRole('button',{name:'Scan with local OCR →'}).disabled,false);
+ await user.click(screen.getByRole('button',{name:'Scan with local OCR →'}));
+ requests[0].resolve({ok:true,json:async()=>({cards:[],scan_id:'old',message:'STALE RESULT'})});
+ await new Promise(r=>setTimeout(r,20));
+ assert.equal(screen.queryByText('STALE RESULT'),null);
+ assert.equal(screen.getByRole('button',{name:'Processing photo…'}).disabled,true);
+ requests[1].resolve({ok:true,json:async()=>({cards:[],scan_id:'new',message:'New scan complete'})});
+ await waitFor(()=>screen.getByText('New scan complete'));
+ assert.equal(screen.queryByRole('button',{name:'Cancel processing'}),null);
+ assert.equal(screen.getByRole('button',{name:'Scan with local OCR →'}).disabled,false);
+ console.log('PASS: cancel aborts request, permits retry, and late results cannot overwrite or unlock a newer scan.');
+ dom.window.close();
+})().catch(e=>{console.error(e);dom.window.close();process.exitCode=1;});

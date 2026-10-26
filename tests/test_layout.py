@@ -31,7 +31,7 @@ def test_fake_recognizer_sample_no_download(tmp_path,monkeypatch):
     monkeypatch.setenv('DEBUG_CROPS_DIR',str(tmp_path))
     fake=FakeRecognizer();cards=extract(cv2.imread(str(ROOT/'fixtures/timecards.jpg')),fake)
     assert len(cards)==5 and sum(len(c['days']) for c in cards)==35
-    assert len(list(tmp_path.glob('*_ink.png')))==35
+    assert list(tmp_path.iterdir())==[]  # Source photos and debug crops are never persisted.
     assert all(not d['adjustment_confirmed'] for c in cards for d in c['days'])
     assert all(d['status_guessed'] for c in cards for d in c['days'])
     assert any(mode=='time' for _,mode in fake.calls)
@@ -91,7 +91,7 @@ def test_measured_grid_generalizes_to_transformed_photos(name,count,transform):
 
 def test_first_in_word_is_fully_inside_crop_and_separate_from_out():
     card=detect_cards(cv2.imread(str(ROOT/'fixtures'/'novel-five-cards.jpg')))[0]
-    # Independently annotated source-image extents of Employee 01's first two words.
+    # Independently annotated source-image extents of Randy's first two words.
     # The old heuristic started the crop below y=257, chopping off the IN word.
     canonical=np.interp([257,269,275,286],card.source_grid,np.linspace(120,720,8))
     positions=canonical-120+card.cell_padding

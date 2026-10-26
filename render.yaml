@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: timecard-scanner-api
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /api/health
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: ENABLE_SERVER_OCR
+        value: "false"
+      - key: APP_ACCESS_TOKEN
+        generateValue: true
+      - key: ALLOWED_ORIGINS
+        sync: false

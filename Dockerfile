@@ -1,29 +1,18 @@
-FROM node:22-bookworm-slim AS frontend-build
-WORKDIR /frontend
-COPY frontend/package.json frontend/package-lock.json ./
-RUN npm ci
-COPY frontend/index.html frontend/tsconfig.json frontend/vite.config.ts ./
-COPY frontend/src ./src
-RUN npm run build
-
+# Render runs only the stateless API. Vercel builds frontend/ separately.
 FROM python:3.11-slim-bookworm
 WORKDIR /app
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    OCR_ENGINE=rapidocr \
-    MODEL_LOCAL_ONLY=1 \
+    ENABLE_SERVER_OCR=false \
     RAPIDOCR_MODEL_DIR=/opt/models/rapidocr \
-    OCR_CPU_THREADS=2 \
-    PORT=10000 \
-    TRAINING_DATA_DIR=/app/storage/training_data
-COPY requirements.txt ./
-RUN pip install --no-cache-dir -r requirements.txt
+    PORT=10000
+COPY requirements-backend.txt ./
+RUN pip install --no-cache-dir -r requirements-backend.txt
 COPY backend ./backend
-COPY download_model.py ./
-# Model files are baked into the image; a server restart needs no download.
-RUN python download_model.py
-COPY --from=frontend-build /frontend/dist ./frontend/dist
+COPY scripts/download_device_model.py ./scripts/download_device_model.py
+# Only public OCR weights are saved. Uploaded timecards are never written to disk.
+RUN python scripts/download_device_model.py
 EXPOSE 10000
-# One worker preserves the existing in-memory scan cache. Threads allow health
-# checks and recalculations while a scan is running.
-CMD ["sh", "-c", "exec gunicorn --bind 0.0.0.0:${PORT:-10000} --workers 1 --threads 4 --timeout 900 'backend.app:create_app()'"]
+# State is carried by the browser: requests can reach different workers/restarts.
+# One worker + two threads limits baseline RAM on small instances.
+CMD ["sh", "-c", "exec gunicorn --bind 0.0.0.0:${PORT:-10000} --workers 1 --threads 2 --timeout 120 --worker-tmp-dir /dev/shm 'backend.app:create_app()'"]

@@ -1,20 +1,26 @@
-from collections import OrderedDict
+from functools import wraps
 from io import BytesIO
 from pathlib import Path
 from uuid import uuid4
+from urllib.parse import urlsplit
+import hmac
 import json
 import os
 import threading
-import zipfile
 import cv2
 import numpy as np
-from flask import Flask,request,jsonify,send_file,send_from_directory
+from flask import Flask,Request,request,jsonify,send_file,send_from_directory
 from PIL import Image,ImageOps,UnidentifiedImageError
 from werkzeug.exceptions import HTTPException
 from .calculator import calculate_cards,STATUSES
-from .extractor import extract
+from .extractor import extract,detect_cards
 from .recognizer import create_recognizer,UnavailableRecognizer
 
+
+class MemoryUploadRequest(Request):
+    # Werkzeug normally spills larger file uploads to a temporary disk file.
+    def _get_file_stream(self,total_content_length,content_type,filename=None,content_length=None):
+        return BytesIO()
 
 def validate_cards(cards):
     if not isinstance(cards,list) or not 1<=len(cards)<=20:raise ValueError('Provide 1–20 cards')
@@ -34,10 +40,57 @@ def validate_cards(cards):
 
 def create_app(recognizer=None):
     app=Flask(__name__,static_folder=None)
+    app.request_class=MemoryUploadRequest
     app.config['MAX_CONTENT_LENGTH']=20*1024*1024
-    cache=OrderedDict();cache_lock=threading.Lock();reader_lock=threading.Lock()
-    reader=recognizer
-    training=Path(os.getenv('TRAINING_DATA_DIR','training_data'))
+    production=os.getenv('APP_ENV','development')=='production'
+    access_token=os.getenv('APP_ACCESS_TOKEN','')
+    server_ocr=os.getenv('ENABLE_SERVER_OCR','false').lower()=='true'
+    origins={origin.strip().rstrip('/') for origin in os.getenv('ALLOWED_ORIGINS','').split(',') if origin.strip()}
+    for origin in origins:
+        parsed=urlsplit(origin)
+        if parsed.scheme not in {'https','http'} or not parsed.netloc or parsed.path or parsed.query or parsed.fragment or parsed.username:
+            raise ValueError('ALLOWED_ORIGINS must contain exact origins, such as https://your-app.vercel.app')
+        if production and parsed.scheme!='https':raise ValueError('Production ALLOWED_ORIGINS must use HTTPS')
+    if production and (len(access_token)<24 or not origins):
+        raise ValueError('Production requires APP_ACCESS_TOKEN (at least 24 characters) and ALLOWED_ORIGINS')
+    reader=recognizer;reader_lock=threading.Lock();image_slot=threading.BoundedSemaphore(1)
+    model_manifest=json.loads((Path(__file__).parent/'device-model.json').read_text())
+
+    @app.before_request
+    def protect_api():
+        if not request.path.startswith('/api/'):return None
+        origin=request.headers.get('Origin')
+        same_origin=request.host_url.rstrip('/')
+        if origin and origin!=same_origin and origin not in origins:
+            return jsonify(error='This website origin is not allowed to use the API.'),403
+        if request.method=='OPTIONS':return '',204
+        if request.path=='/api/health':return None
+        if access_token and not hmac.compare_digest(request.headers.get('Authorization','').encode(),f'Bearer {access_token}'.encode()):
+            return jsonify(error='Enter the correct app access password.'),401
+
+    @app.after_request
+    def response_headers(response):
+        origin=request.headers.get('Origin')
+        if request.path.startswith('/api/'):
+            response.headers['Cache-Control']='no-store'
+            response.headers['Vary']='Origin'
+            if origin in origins:
+                response.headers['Access-Control-Allow-Origin']=origin
+                response.headers['Access-Control-Allow-Methods']='GET, POST, OPTIONS'
+                response.headers['Access-Control-Allow-Headers']='Authorization, Content-Type'
+                response.headers['Access-Control-Max-Age']='600'
+        response.headers['X-Content-Type-Options']='nosniff'
+        response.headers['Referrer-Policy']='no-referrer'
+        return response
+
+    def limited_image_work(function):
+        @wraps(function)
+        def wrapped(*args,**kwargs):
+            if not image_slot.acquire(blocking=False):
+                return jsonify(error='Another photo is being processed. Please try again shortly.'),429
+            try:return function(*args,**kwargs)
+            finally:image_slot.release()
+        return wrapped
 
     @app.errorhandler(Exception)
     def error(exc):
@@ -47,8 +100,11 @@ def create_app(recognizer=None):
         return jsonify(error='Processing failed. Check the backend logs; no payroll result was produced.'),500
 
     @app.get('/api/health')
-    def health():return jsonify(ok=True,ocr_loaded=reader is not None,
+    def health():return jsonify(ok=True,stateless=True,server_ocr_enabled=server_ocr,ocr_loaded=reader is not None,
                                ocr_engine=type(reader).__name__ if reader is not None else None)
+
+    @app.get('/api/access')
+    def access():return jsonify(ok=True)
 
     @app.post('/api/calculate')
     def calculate():
@@ -57,15 +113,33 @@ def create_app(recognizer=None):
         return jsonify(cards=calculate_cards(validate_cards(body.get('cards'))))
 
     @app.post('/api/scan')
+    @limited_image_work
     def scan():
         nonlocal reader
+        device=request.form.get('device')=='true'
+        manual=request.form.get('manual')=='true'
+        if not device and not manual and not server_ocr:
+            return jsonify(error='Server OCR is disabled. Choose device OCR or manual entry.'),403
         upload=request.files.get('image')
         if not upload:raise ValueError('Choose a JPG, PNG or other supported image')
-        pil=Image.open(upload.stream)
-        if pil.width*pil.height>24_000_000:raise ValueError('Image exceeds 24 megapixels. Resize and try again.')
-        pil=ImageOps.exif_transpose(pil).convert('RGB')
+        rotation=request.form.get('rotation','0')
+        if rotation not in {'0','90','180','270'}:
+            raise ValueError('Rotation must be 0, 90, 180, or 270 degrees clockwise')
+        with Image.open(upload.stream) as source:
+            if source.width*source.height>24_000_000:raise ValueError('Image exceeds 24 megapixels. Resize and try again.')
+            pil=ImageOps.exif_transpose(source).convert('RGB')
+        if pil.width*pil.height>6_000_000:
+            scale=(6_000_000/(pil.width*pil.height))**.5
+            pil.thumbnail((int(pil.width*scale),int(pil.height*scale)),Image.Resampling.LANCZOS)
+        if rotation!='0':pil=pil.rotate(-int(rotation),expand=True)
         image=cv2.cvtColor(np.array(pil),cv2.COLOR_RGB2BGR)
-        manual=request.form.get('manual')=='true'
+        if device:
+            from .device_ocr import DeviceRecognizer,pack_layouts
+            layouts=detect_cards(image)
+            if len(layouts)>20:raise ValueError('Use at most 20 cards per photo')
+            collector=DeviceRecognizer()
+            extract(None,collector,layouts=layouts)
+            return jsonify(layouts=pack_layouts(layouts),tasks=list(collector.tasks.values()))
         if manual:active=UnavailableRecognizer()
         else:
             with reader_lock:
@@ -73,57 +147,47 @@ def create_app(recognizer=None):
                     try:reader=create_recognizer()
                     except Exception:
                         app.logger.exception('Local OCR model could not load')
-                        return jsonify(error='The OCR reader is unavailable. Install requirements and run python download_model.py on the server, or choose manual entry.',ocr_unavailable=True),503
+                        return jsonify(error='The optional server OCR reader is unavailable. Choose device OCR or manual entry.'),503
                 active=reader
         cards=extract(image,active)
-        token=uuid4().hex
-        with cache_lock:
-            cache[token]=cards
-            while len(cache)>8:cache.popitem(last=False)
-        return jsonify(scan_id=token,cards=calculate_cards(cards),manual=manual,message='Manual mode: no handwriting was recognized. Enter and verify every punch and inspect adjustment notes.' if manual else 'All OCR values require review. Inspect every crop and adjustment area.')
+        return jsonify(scan_id=uuid4().hex,cards=calculate_cards(cards),manual=manual,message='Manual mode: no handwriting was recognized. Enter and verify every punch and inspect adjustment notes.' if manual else 'All OCR values require review. Inspect every crop and adjustment area.')
 
-    @app.post('/api/training')
-    def save_training():
+    @app.get('/api/device-model')
+    def device_model():return jsonify(**model_manifest,url='/api/device-model/weights')
+
+    @app.get('/api/device-model/weights')
+    def device_weights():
+        root=Path(os.getenv('RAPIDOCR_MODEL_DIR',str(Path(__file__).parents[1]/'model_cache'/'rapidocr')))
+        path=root/model_manifest['filename']
+        if not path.is_file():return jsonify(error='Device model is missing on the server. Run scripts/download_device_model.py.'),503
+        return send_file(path,mimetype='application/octet-stream',conditional=True)
+
+    @app.post('/api/device-result')
+    @limited_image_work
+    def device_result():
+        from .device_ocr import DeviceRecognizer,unpack_layouts
         body=request.get_json()
-        if not isinstance(body,dict):raise ValueError('Expected JSON')
-        cards=validate_cards(body.get('cards'))
-        with cache_lock:original=cache.get(body.get('scan_id',''))
-        if original is None:raise ValueError('Scan expired. Upload again before saving corrected crops.')
-        if len(cards)!=len(original):raise ValueError('Card count differs from the original scan')
-        batch=training/uuid4().hex;batch.mkdir(parents=True,exist_ok=False)
-        import base64
-        records=[]
-        for ci,card in enumerate(cards):
-            for di,day in enumerate(card['days']):
-                if day.get('reviewed') is not True:continue
-                if day['status']=='worked':
-                    from .calculator import parse_time
-                    try:parse_time(day.get('in'));parse_time(day.get('out'))
-                    except ValueError:continue
-                images={}
-                for key in ['image','note_image']:
-                    filename=f'{ci}_{di}_{key}.png'
-                    (batch/filename).write_bytes(base64.b64decode(original[ci]['days'][di][key].split(',')[1]))
-                    images[key]=filename
-                records.append({'card':ci,'day':di,'status':day['status'],'in':day.get('in',''),'out':day.get('out',''),'note':day.get('note',''),'adjustment_hours':day.get('adjustment_hours','0'),'adjustment_confirmed':day.get('adjustment_confirmed',False),'images':images})
-        (batch/'labels.jsonl').write_text(''.join(json.dumps(r)+'\n' for r in records))
-        return jsonify(saved_rows=len(records),batch=batch.name)
-
-    @app.get('/api/training/<batch_id>')
-    def download_training(batch_id):
-        if not len(batch_id)==32 or any(c not in '0123456789abcdef' for c in batch_id):raise ValueError('Invalid training batch')
-        folder=training/batch_id
-        if not folder.is_dir():return jsonify(error='Training batch not found'),404
-        data=BytesIO()
-        with zipfile.ZipFile(data,'w',zipfile.ZIP_DEFLATED) as z:
-            for file in folder.iterdir():z.write(file,file.name)
-        data.seek(0);return send_file(data,mimetype='application/zip',as_attachment=True,download_name='corrected-crops.zip')
+        if not isinstance(body,dict):raise ValueError('Expected device readings')
+        layouts=unpack_layouts(body.get('layouts'))
+        readings=body.get('readings')
+        if not isinstance(readings,dict) or len(readings)>1000:raise ValueError('Invalid device readings')
+        for value in readings.values():
+            if not isinstance(value,dict) or not isinstance(value.get('text'),str) or len(value['text'])>500:raise ValueError('Invalid device text')
+            score=value.get('confidence')
+            if isinstance(score,bool) or not isinstance(score,(int,float)) or not 0<=score<=1:raise ValueError('Invalid device confidence')
+        cards=extract(None,DeviceRecognizer(readings),layouts=layouts)
+        return jsonify(scan_id=uuid4().hex,cards=calculate_cards(cards),manual=False,message='Device OCR complete. Review every entry. Photos were processed in server memory only; no photos or scans were saved.')
 
     dist=Path(__file__).parents[1]/'frontend'/'dist'
     @app.get('/')
     def index():
-        if not (dist/'index.html').exists():return jsonify(error='Frontend is not built. Run npm install and npm run build in frontend.'),503
+        if not (dist/'index.html').exists():return jsonify(service='Timecard API',health='/api/health',stateless=True)
         return send_from_directory(dist,'index.html')
+    @app.get('/manifest.webmanifest')
+    @app.get('/sw.js')
+    @app.get('/icon-192.png')
+    @app.get('/icon-512.png')
+    def install_asset():return send_from_directory(dist,request.path.lstrip('/'))
     @app.get('/assets/<path:filename>')
     def asset(filename):return send_from_directory(dist/'assets',filename)
     return app
