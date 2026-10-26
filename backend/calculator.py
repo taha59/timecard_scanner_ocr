@@ -99,6 +99,8 @@ def calculate_day(day, confidence_threshold=.8):
             break
     if day.get('status_guessed'):
         flags.append('Status guessed from ink fraction: verify original crop')
+    if day.get('ocr_recovered'):
+        flags.append('Tentative OCR recovery: verify digits against source crop')
     if day.get('ocr_cross_check_skipped'):
         flags.append('Alternate OCR crop not checked: verify original crop')
     if day.get('ocr_conflict'):

@@ -56,7 +56,8 @@ def test_fallback_dependencies_and_skipped_readings(client):
     tasks={task['id']:task for task in job['tasks']}
     fallbacks=[task for task in tasks.values() if task.get('required') is False]
     assert fallbacks
-    assert all(task.get('fallback_for') and all(parent in tasks and parent!=task['id'] for parent in task['fallback_for']) for task in fallbacks)
+    assert all(task.get('fallback_for') or task.get('recover_for') for task in fallbacks)
+    assert all(parent in tasks and parent!=task['id'] for task in fallbacks for parent in task.get('fallback_for',[]))
     full={key:{'text':'10:00','confidence':.79} for key in tasks}
     all_read=client.post('/api/device-result',json={'layouts':job['layouts'],'readings':full}).json
     skipped={key:({'text':'','confidence':0,'skipped_reason':'original_valid'} if task.get('required') is False else full[key]) for key,task in tasks.items()}
@@ -69,3 +70,70 @@ def test_fallback_dependencies_and_skipped_readings(client):
     for key,task in tasks.items():
         if task.get('required') is not False:skipped[key]={'text':'not a clock','confidence':.2}
     assert client.post('/api/device-result',json={'layouts':job['layouts'],'readings':skipped}).status_code==400
+
+
+def test_low_score_valid_times_are_not_suppressed(client):
+    job=prepare(client).json
+    readings={task['id']:{'text':'9:00am','confidence':.02} for task in job['tasks']}
+    response=client.post('/api/device-result',json={'layouts':job['layouts'],'readings':readings})
+    assert response.status_code==200
+    for card in response.json['cards']:
+        for day in card['days']:
+            assert day['in']=='9:00am' and day['out']=='9:00am'
+            assert day['reviewed'] is False
+            assert 'Low OCR confidence: verify original crop' in day['flags']
+
+
+def test_focused_out_retry_can_recover_low_score_time(client):
+    import cv2
+    from backend.device_ocr import DeviceRecognizer,unpack_layouts
+    from backend.extractor import clean_ink,photo_punch_crops,focused_punch_crops,punch_crops
+    job=prepare(client).json
+    layout=unpack_layouts(job['layouts'])[0];ink=clean_ink(layout.cells[0])
+    original=photo_punch_crops(layout.cells[0],ink);cleaned=punch_crops(ink);focused=focused_punch_crops(layout.cells[0],ink)
+    readings={task['id']:{'text':'not readable','confidence':.2} for task in job['tasks']}
+    key=DeviceRecognizer._key
+    readings[key(original[0],'time')]={'text':'9:00am','confidence':.02}
+    readings[key(original[1],'time')]={'text':'11:400 1','confidence':.99}
+    readings[key(cleaned[1],'time')]={'text':'not readable','confidence':.9}
+    readings[key(focused[1],'time')]={'text':'11:40pm','confidence':.02}
+    response=client.post('/api/device-result',json={'layouts':job['layouts'],'readings':readings})
+    assert response.status_code==200
+    day=response.json['cards'][0]['days'][0]
+    assert day['out']=='11:40pm' and not day['reviewed']
+    assert 'Tentative OCR recovery: verify digits against source crop' in day['flags']
+
+
+def test_bare_numbers_without_another_clock_are_not_invented_times(client):
+    job=prepare(client).json
+    readings={task['id']:{'text':'1140','confidence':.99} for task in job['tasks']}
+    response=client.post('/api/device-result',json={'layouts':job['layouts'],'readings':readings})
+    assert response.status_code==200
+    assert all(not d['in'] and not d['out'] for c in response.json['cards'] for d in c['days'])
+
+
+def test_previous_clients_without_optional_focus_tasks_still_work(client):
+    job=prepare(client).json
+    readings={task['id']:{'text':'9:00am','confidence':.3} for task in job['tasks']
+              if not (task.get('recover_for') and not task.get('fallback_for') and task.get('required') is False)}
+    response=client.post('/api/device-result',json={'layouts':job['layouts'],'readings':readings})
+    assert response.status_code==200
+    assert all(d['in']=='9:00am' and d['out']=='9:00am' for c in response.json['cards'] for d in c['days'])
+
+
+def test_tentative_recovery_keeps_meridiem_disagreement_flag(client):
+    from backend.device_ocr import DeviceRecognizer,unpack_layouts
+    from backend.extractor import clean_ink,photo_punch_crops,focused_punch_crops,punch_crops
+    job=prepare(client).json;layout=unpack_layouts(job['layouts'])[0];ink=clean_ink(layout.cells[0])
+    original=photo_punch_crops(layout.cells[0],ink);cleaned=punch_crops(ink);focused=focused_punch_crops(layout.cells[0],ink)
+    readings={task['id']:{'text':'not readable','confidence':.3} for task in job['tasks']}
+    key=DeviceRecognizer._key
+    readings[key(original[0],'time')]={'text':'9:00am','confidence':.4}
+    readings[key(original[1],'time')]={'text':'900am','confidence':.4}
+    readings[key(cleaned[1],'time')]={'text':'900pm','confidence':.4}
+    response=client.post('/api/device-result',json={'layouts':job['layouts'],'readings':readings})
+    assert response.status_code==200
+    day=response.json['cards'][0]['days'][0]
+    assert day['out']=='9:00am'
+    assert 'OCR readings disagree: verify original crop' in day['flags']
+    assert not day['reviewed']

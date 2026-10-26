@@ -173,10 +173,10 @@ def create_app(recognizer=None):
         if not isinstance(body,dict):raise ValueError('Expected device readings')
         layouts=unpack_layouts(body.get('layouts'))
         readings=body.get('readings')
-        if not isinstance(readings,dict) or len(readings)>1000:raise ValueError('Invalid device readings')
+        if not isinstance(readings,dict) or len(readings)>1200:raise ValueError('Invalid device readings')
         for value in readings.values():
             if not isinstance(value,dict) or not isinstance(value.get('text'),str) or len(value['text'])>500:raise ValueError('Invalid device text')
-            if value.get('skipped_reason') not in (None,'original_valid'):
+            if value.get('skipped_reason') not in (None,'original_valid','standard_valid'):
                 raise ValueError('Invalid skipped crop reason')
             if value.get('skipped_reason') and (value['text'] or value.get('confidence')!=0):
                 raise ValueError('Skipped crops must not contain invented readings')

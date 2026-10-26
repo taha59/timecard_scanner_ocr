@@ -15,3 +15,14 @@ assert.equal(skipFallback({id:'fallback',image:'',fallback_for:['a']},{a:good}),
 assert.equal(skipFallback({id:'fallback',image:'',required:false,fallback_for:['a','b']},{a:good}),false);
 assert.equal(skipFallback({id:'a',image:'',required:false,fallback_for:['a']},{a:good}),false);
 console.log('PASS: only high-quality, valid original clocks allow dependent fallback crops to be skipped; ambiguous, missing, primary and shared-required readings remain checked.');
+const {readableClock,cropStage}=context.policy;
+assert.equal(readableClock({text:'10:35pm',confidence:.1}),true);
+assert.equal(readableClock({text:'11:400 1',confidence:.99}),false);
+assert.equal(readableClock({text:'10:20 5:00',confidence:.99}),false);
+const recovery={id:'focus',image:'',required:false,recover_for:[['a','b']]};
+assert.equal(skipFallback(recovery,{a:{text:'10:35pm',confidence:.1}}),true);
+assert.equal(skipFallback(recovery,{a:{text:'not readable',confidence:.99}}),false);
+assert.equal(skipFallback({...recovery,recover_for:[['a','b'],['c','d']]},{a:good}),false);
+assert.equal(cropStage({id:'x',image:'',required:true}),0);
+assert.equal(cropStage(recovery),2);
+console.log('PASS: missing-field recovery retries ignore confidence, run after ordinary crops, and cannot skip an unresolved/shared field.');

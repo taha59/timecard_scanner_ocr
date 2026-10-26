@@ -234,6 +234,7 @@ def extract(image,recognizer,layouts=None):
                  'ocr_alternatives':{'in':values[0].alternatives,'out':values[1].alternatives} if values else {},
                  'ocr_conflict':any(v.conflict for v in values),
                  'ocr_cross_check_skipped':any(v.cross_check_skipped for v in values),
+                 'ocr_recovered':any(v.recovered for v in values),
                  'status_confidence':status_read.confidence if status_read else .5,'status_guessed':True,'ink_fraction':fraction,
                  'ink_class':guessed,'raw_status':status_read.text if status_read else '', 'source':'ocr','reviewed':False,
                  'note':note.text,'adjustment_hours':adjustments[0] if len(adjustments)==1 else '0',
@@ -242,3 +243,21 @@ def extract(image,recognizer,layouts=None):
             card['days'].append(row)
         cards.append(card)
     return cards
+
+
+def focused_punch_crops(cell,ink):
+    """A tighter line view for missing punches, excluding the handwritten total.
+
+    This is an additional retry. The original crops remain available and win
+    whenever they already contain a valid time.
+    """
+    result=[]
+    for index,(a,b) in enumerate(punch_bands(ink)):
+        if index==1:b=max(a+12,min(b,round(cell.shape[0]*.52)))
+        part=cell[a:b].copy();mask=ink[a:b]
+        ys,xs=np.where(mask>0)
+        if len(xs):part=part[max(0,ys.min()-2):ys.max()+3,max(0,xs.min()-2):xs.max()+3]
+        part=cv2.copyMakeBorder(part,5,5,5,5,cv2.BORDER_CONSTANT,value=(255,255,255))
+        result.append(Image.fromarray(cv2.cvtColor(part,cv2.COLOR_BGR2RGB)).resize(
+            (part.shape[1]*3,part.shape[0]*3),Image.Resampling.BICUBIC))
+    return result

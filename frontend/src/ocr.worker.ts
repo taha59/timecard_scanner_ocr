@@ -1,7 +1,7 @@
 import * as ort from 'onnxruntime-web/wasm';
 import wasmUrl from 'onnxruntime-web/ort-wasm-simd-threaded.wasm?url';
 import wasmModuleUrl from 'onnxruntime-web/ort-wasm-simd-threaded.mjs?url';
-import {skipFallback,type CropReading,type CropTask} from './ocr-policy';
+import {skipFallback,cropStage,type CropReading,type CropTask} from './ocr-policy';
 const requestedThreads=import.meta.env.VITE_OCR_THREADS==='1'?1:2;
 ort.env.wasm.numThreads=self.crossOriginIsolated&&typeof SharedArrayBuffer!=='undefined'?Math.min(2,Math.max(1,requestedThreads),navigator.hardwareConcurrency||1):1;
 ort.env.wasm.proxy=false;
@@ -25,14 +25,14 @@ scope.onmessage=async event=>{
   scope.postMessage({initialized:true});
   const loaded=performance.now(),readings:Record<string,CropReading>={};
   // Originals always run before any shared fallback that depends on them.
-  const ordered=[...tasks].sort((a,b)=>Number(a.required===false)-Number(b.required===false));
+  const ordered=[...tasks].sort((a,b)=>cropStage(a)-cropStage(b));
   let processed=0,skipped=0;
   const canvas=new OffscreenCanvas(1,48),context=canvas.getContext('2d');
   if(!context)throw new Error('Image processing is unavailable in this browser.');
   for(let index=0;index<ordered.length;index++){
    const task=ordered[index];
    if(skipFallback(task,readings)){
-    readings[task.id]={text:'',confidence:0,skipped_reason:'original_valid'};skipped++;
+    readings[task.id]={text:'',confidence:0,skipped_reason:task.recover_for?.length?'standard_valid':'original_valid'};skipped++;
    }else{
     const bitmap=await createImageBitmap(await (await fetch(task.image)).blob());
     const height=48,width=Math.max(320,Math.min(1024,Math.ceil(height*bitmap.width/bitmap.height)));

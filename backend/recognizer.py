@@ -24,6 +24,7 @@ class Reading:
     conflict: bool = False
     has_clock: bool = False
     cross_check_skipped: bool = False
+    recovered: bool = False
 
 
 def time_token_trie(tokenizer):

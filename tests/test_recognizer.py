@@ -163,3 +163,14 @@ def test_time_grammar_rejects_repeated_digits_and_invalid_minutes():
     assert not accepts('8.000000')
     assert not accepts('9:95')
     assert not accepts('23:10 pm')
+
+@pytest.mark.parametrize('raw,expected',[
+    ('10:20,919','10:20'),('11:400 1','11:40'),('3:20H4','3:20'),
+    ('1125PM','11:25pm'),('4;55PM','4:55pm'),
+    ('11:25pm','11:25pm'),('32a4',''),('3ioa',''),('1:sm m',''),
+    ('D:3M',''),('35',''),('OFF',''),('9:00 5:00',''),('10.19.26',''),
+    ('+11:40',''),('-1140',''),('99:77',''),('10:35AM','10:35am'),
+])
+def test_tentative_clock_formatting(raw,expected):
+    from backend.ocr_common import tentative_clock_text
+    assert tentative_clock_text(raw)==expected
