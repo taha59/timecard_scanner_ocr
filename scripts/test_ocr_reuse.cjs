@@ -19,6 +19,10 @@ const m={version:'test',sha256:'hash'},tasks=[{id:'a',image:'data:test'}],tick=(
  instances[1].complete();await retry;
  const pending=w.device.recognizeOnDevice(m,tasks,new AbortController().signal,()=>{});await tick();w.dispatchEvent(new w.Event('pagehide'));
  await assert.rejects(pending,e=>e.name==='AbortError');assert.equal(instances[1].terminated,true);
+ let startup=w.device.recognizeOnDevice(m,tasks,new AbortController().signal,()=>{});await tick();
+ const failed=instances[2];failed.onerror();await tick();
+ assert.equal(failed.terminated,true);assert.equal(instances.length,4);assert.equal(instances[3].sent[0].forceSingleThread,true);
+ instances[3].complete();await startup;
  w.device.releaseDeviceModel();w.close();
- console.log('PASS: repeat scans reuse one model without re-reading weights; cancel/pagehide terminate it, and retry creates a fresh worker.');
+ console.log('PASS: repeat scans reuse one model without re-reading weights; cancel/pagehide terminate it, retry creates a fresh worker, and initialization failure retries once with one thread.');
 })().catch(e=>{console.error(e);w.device.releaseDeviceModel();w.close();process.exitCode=1;});

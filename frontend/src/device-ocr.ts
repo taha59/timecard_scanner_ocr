@@ -41,7 +41,7 @@ function abortable<T>(work:Promise<T>,signal:AbortSignal){
   work.then(value=>{signal.removeEventListener('abort',cancel);resolve(value);},error=>{signal.removeEventListener('abort',cancel);reject(error);});
  });
 }
-export async function recognizeOnDevice(m:ModelManifest,tasks:DeviceTask[],signal:AbortSignal,progress:(text:string)=>void,report?:(stats:DeviceOcrStats)=>void){
+async function recognizeAttempt(m:ModelManifest,tasks:DeviceTask[],signal:AbortSignal,progress:(text:string)=>void,report:((stats:DeviceOcrStats)=>void)|undefined,forceSingleThread=false){
  if(inFlight)throw new Error('Another device scan is still running.');
  signal.throwIfAborted();inFlight=true;
  let worker:Worker|undefined;
@@ -60,7 +60,10 @@ export async function recognizeOnDevice(m:ModelManifest,tasks:DeviceTask[],signa
   worker=currentWorker!;
   const active=worker;
   return await new Promise<Record<string,CropReading>>((resolve,reject)=>{
+   let initialized=reuse,bootTimer:ReturnType<typeof setTimeout>|undefined;
+   const startupError=(message:string)=>{const error=new Error(message);error.name='DeviceOcrStartupError';return error;};
    const finish=(discard:boolean)=>{
+    if(bootTimer)clearTimeout(bootTimer);
     signal.removeEventListener('abort',cancel);cancelActive=null;active.onmessage=null;active.onerror=null;
     if(discard&&currentWorker===active)discardWorker();
    };
@@ -68,20 +71,31 @@ export async function recognizeOnDevice(m:ModelManifest,tasks:DeviceTask[],signa
    cancelActive=cancel;
    signal.addEventListener('abort',cancel,{once:true});
    if(signal.aborted){cancel();return;}
-   active.onerror=()=>{finish(true);reject(new Error('Device OCR could not run. Try manual entry or a newer browser.'));};
+   active.onerror=()=>{finish(true);reject(initialized?new Error('Device OCR could not run. Try manual entry or a newer browser.'):startupError('The OCR runtime could not start.'));};
    active.onmessage=event=>{
     const data=event.data;
-    if(data.progress)progress(data.progress);
-    else if(data.error){finish(true);reject(new Error(data.error));}
+    if(data.initialized){initialized=true;if(bootTimer)clearTimeout(bootTimer);}
+    else if(data.progress)progress(data.progress);
+    else if(data.error){finish(true);reject(initialized?new Error(data.error):startupError(data.error));}
     else if(data.readings){workerReady=true;report?.(data.stats);finish(false);resolve(data.readings);}
    };
    progress(reuse?'Using the already loaded device model…':'Loading the model on this device…');
-   active.postMessage({model,tasks,characters:model?m.characters:undefined},model?[model]:[]);
+   if(!reuse)bootTimer=setTimeout(()=>{finish(true);reject(startupError('The OCR runtime took too long to start.'));},30_000);
+   active.postMessage({model,tasks,characters:model?m.characters:undefined,forceSingleThread},model?[model]:[]);
   });
  }catch(error){if(worker&&currentWorker===worker)releaseDeviceModel();throw error;}
  finally{
   inFlight=false;
   // Retain only the loaded model, for at most five minutes between scans.
   if(currentWorker)idleTimer=setTimeout(releaseDeviceModel,5*60*1000);
+ }
+}
+
+export async function recognizeOnDevice(m:ModelManifest,tasks:DeviceTask[],signal:AbortSignal,progress:(text:string)=>void,report?:(stats:DeviceOcrStats)=>void){
+ try{return await recognizeAttempt(m,tasks,signal,progress,report);}
+ catch(error){
+  if(signal.aborted||(error as Error).name!=='DeviceOcrStartupError')throw error;
+  progress('Threaded OCR could not start. Retrying with one CPU thread…');
+  return await recognizeAttempt(m,tasks,signal,progress,report,true);
  }
 }

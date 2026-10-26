@@ -5,7 +5,9 @@ import {skipFallback,type CropReading,type CropTask} from './ocr-policy';
 const requestedThreads=import.meta.env.VITE_OCR_THREADS==='1'?1:2;
 ort.env.wasm.numThreads=self.crossOriginIsolated&&typeof SharedArrayBuffer!=='undefined'?Math.min(2,Math.max(1,requestedThreads),navigator.hardwareConcurrency||1):1;
 ort.env.wasm.proxy=false;
-ort.env.wasm.wasmPaths={wasm:wasmUrl,mjs:wasmModuleUrl};
+// These URLs previously had no COEP headers and may be cached indefinitely.
+// A new cache key forces a header-correct fetch when enabling threaded workers.
+ort.env.wasm.wasmPaths={wasm:`${wasmUrl}?ocrRuntime=2`,mjs:`${wasmModuleUrl}?ocrRuntime=2`};
 const scope=self as unknown as {onmessage:((event:MessageEvent)=>void)|null;postMessage:(data:unknown)=>void};
 let session:ort.InferenceSession|undefined;
 let characters:string[]=[];
@@ -15,9 +17,12 @@ scope.onmessage=async event=>{
   const started=performance.now(),reused=Boolean(session);
   if(!session){
    if(!model)throw new Error('The device model needs to be loaded again.');
+   if(event.data.forceSingleThread)ort.env.wasm.numThreads=1;
+   scope.postMessage({progress:`Starting OCR runtime (${ort.env.wasm.numThreads} thread${ort.env.wasm.numThreads===1?'':'s'})…`});
    characters=event.data.characters;
    session=await ort.InferenceSession.create(model,{executionProviders:['wasm'],graphOptimizationLevel:'all'});
   }
+  scope.postMessage({initialized:true});
   const loaded=performance.now(),readings:Record<string,CropReading>={};
   // Originals always run before any shared fallback that depends on them.
   const ordered=[...tasks].sort((a,b)=>Number(a.required===false)-Number(b.required===false));

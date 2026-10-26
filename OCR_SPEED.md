@@ -49,3 +49,10 @@ prediction of speed on every phone. Physical iPhone/Android testing remains.
 
 The backend remains stateless and does not save photos. Model storage consent
 and browser-cache removal behavior are unchanged.
+
+## Runtime startup compatibility
+
+Runtime module/binary URLs use a new cache key so browsers with pre-isolation
+cached assets fetch the current COEP-enabled headers. Startup has a 30-second
+watchdog and one single-thread retry on initialization failure; cancellation
+still terminates the active worker. The retry uses the same cached model weights.
