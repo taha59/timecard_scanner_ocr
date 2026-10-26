@@ -137,3 +137,25 @@ def test_tentative_recovery_keeps_meridiem_disagreement_flag(client):
     assert day['out']=='9:00am'
     assert 'OCR readings disagree: verify original crop' in day['flags']
     assert not day['reviewed']
+
+
+def test_label_edge_crop_recovers_missing_and_clipped_valid_hours():
+    import cv2
+    from backend.device_ocr import DeviceRecognizer
+    from backend.extractor import detect_cards,clean_ink,punch_crops,photo_punch_crops,focused_punch_crops,label_edge_punch_crops
+    layout=detect_cards(cv2.imread(str(Path(__file__).parents[1]/'fixtures/october-group.jpg')))[2]
+    for day,clipped,expected in [(1,'0:55pm','10:55pm'),(3,'0:45','10:45pm'),(5,'1:45pm','11:45pm')]:
+        cell=layout.cells[day];ink=clean_ink(cell);punches=punch_crops(ink)
+        edge=label_edge_punch_crops(layout,day)[1]
+        assert edge is not None
+        collector=DeviceRecognizer();collector.read_punches(layout,day,punches)
+        readings={key:{'text':'unreadable','confidence':.1} for key in collector.tasks}
+        for crops in [punches,photo_punch_crops(cell,ink),focused_punch_crops(cell,ink)]:
+            readings[collector._key(crops[1],'time')]={'text':clipped,'confidence':.99}
+        readings[collector._key(edge,'time')]={'text':expected,'confidence':.4}
+        out=DeviceRecognizer(readings).read_punches(layout,day,punches)[1]
+        assert out.text==expected and out.recovered
+        if clipped=='1:45pm':assert out.conflict
+        # A scan prepared before this update can still finish without edge tasks.
+        del readings[collector._key(edge,'time')]
+        DeviceRecognizer(readings).read_punches(layout,day,punches)

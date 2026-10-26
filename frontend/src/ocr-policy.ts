@@ -1,5 +1,5 @@
 export type CropReading={text:string;confidence:number;quality?:number;skipped_reason?:'original_valid'|'standard_valid'};
-export type CropTask={id:string;image:string;required?:boolean;fallback_for?:string[];recover_for?:string[][]};
+export type CropTask={id:string;image:string;required?:boolean;fallback_for?:string[];recover_for?:string[][];edge_recovery?:boolean};
 // Deliberately narrower than the backend's parser: ambiguous OCR characters,
 // malformed suffixes, and low-quality readings still get both crop versions.
 export function clearClock(reading:CropReading|undefined){
@@ -24,6 +24,6 @@ export function skipFallback(task:CropTask,readings:Record<string,CropReading>){
  const ordinary=task.fallback_for||[],recover=task.recover_for||[];
  if(task.required!==false||(!ordinary.length&&!recover.length))return false;
  if(ordinary.includes(task.id)||recover.some(group=>!group.length||group.includes(task.id)))return false;
- return ordinary.every(id=>clearClock(readings[id]))&&recover.every(group=>group.some(id=>readableClock(readings[id])));
+ return ordinary.every(id=>clearClock(readings[id]))&&recover.every(group=>group.some(id=>readableClock(readings[id])&&(!task.edge_recovery||!/^\s*[012]\s*[:.]/.test(readings[id].text))));
 }
-export function cropStage(task:CropTask){return task.required!==false?0:task.recover_for?.length?2:1;}
+export function cropStage(task:CropTask){return task.required!==false?0:task.edge_recovery?3:task.recover_for?.length?2:1;}

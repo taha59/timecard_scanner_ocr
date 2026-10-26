@@ -239,7 +239,7 @@ def extract(image,recognizer,layouts=None):
                  'ink_class':guessed,'raw_status':status_read.text if status_read else '', 'source':'ocr','reviewed':False,
                  'note':note.text,'adjustment_hours':adjustments[0] if len(adjustments)==1 else '0',
                  'adjustment_confirmed':False, # Every notes area must be inspected, including failed OCR.
-                 'image':png_data(cell),'note_image':png_data(layout.notes[di]),'punch_images':[png_data(p) for p in punches]}
+                 'image':png_data(layout.image[round(120+di*600/7)-layout.cell_padding:round(120+(di+1)*600/7)+layout.cell_padding,182:306]),'note_image':png_data(layout.notes[di]),'punch_images':[png_data(p) for p in punches]}
             card['days'].append(row)
         cards.append(card)
     return cards
@@ -260,4 +260,28 @@ def focused_punch_crops(cell,ink):
         part=cv2.copyMakeBorder(part,5,5,5,5,cv2.BORDER_CONSTANT,value=(255,255,255))
         result.append(Image.fromarray(cv2.cvtColor(part,cv2.COLOR_BGR2RGB)).resize(
             (part.shape[1]*3,part.shape[0]*3),Image.Resampling.BICUBIC))
+    return result
+
+
+def label_edge_punch_crops(layout,day):
+    """Recover strokes against the printed strip without changing normal crops.
+
+    The strip ends at normalized x=190; ordinary cells start at x=198.
+    Inspect the omitted margin as well as the ordinary crop's first pixels.
+    Only punches with dark handwriting there need this additional reading.
+    """
+    a=round(120+day*600/7)-layout.cell_padding
+    b=round(120+(day+1)*600/7)+layout.cell_padding
+    cell=layout.image[a:b,190:306].copy()
+    ink=clean_ink(cell)
+    hsv=cv2.cvtColor(cell,cv2.COLOR_BGR2HSV)
+    cell[cv2.inRange(hsv,(30,19,30),(105,255,255))>0]=255
+    crops=focused_punch_crops(cell,ink)
+    bands=punch_bands(ink)
+    result=[]
+    for index,(top,bottom) in enumerate(bands):
+        if index==1:bottom=max(top+12,min(bottom,round(cell.shape[0]*.52)))
+        # x=191..201 includes the lost margin and the old cleaner's border.
+        touching=np.count_nonzero(ink[top:bottom,1:12])>=3
+        result.append(crops[index] if touching else None)
     return result

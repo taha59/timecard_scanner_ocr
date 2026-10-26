@@ -26,3 +26,11 @@ assert.equal(skipFallback({...recovery,recover_for:[['a','b'],['c','d']]},{a:goo
 assert.equal(cropStage({id:'x',image:'',required:true}),0);
 assert.equal(cropStage(recovery),2);
 console.log('PASS: missing-field recovery retries ignore confidence, run after ordinary crops, and cannot skip an unresolved/shared field.');
+const edgeRecovery={...recovery,edge_recovery:true};
+assert.equal(skipFallback(edgeRecovery,{a:{text:'1:45pm',confidence:.99}}),false);
+assert.equal(skipFallback(edgeRecovery,{a:{text:'2:00pm',confidence:.99}}),false);
+assert.equal(skipFallback(edgeRecovery,{a:{text:'11:45pm',confidence:.1}}),true);
+assert.equal(skipFallback(edgeRecovery,{a:{text:'0:55pm',confidence:.99}}),false);
+assert.equal(cropStage(edgeRecovery),3);
+console.log('PASS: label-edge crops also check potentially clipped leading digits after normal recovery.');
+assert.equal(skipFallback(edgeRecovery,{a:{text:'0:45',confidence:.99}}),false);
