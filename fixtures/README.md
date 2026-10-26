@@ -1,0 +1,1 @@
+Photo fixtures are intentionally excluded from the public repository. Anonymized calculation labels are included. Restore your own matching photos locally to run photo-dependent tests and evaluation scripts. The complete original snapshot is retained locally.

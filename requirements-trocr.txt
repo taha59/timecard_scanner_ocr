@@ -1,0 +1,7 @@
+# Optional legacy reader: pip install -r requirements-trocr.txt
+-r requirements.txt
+torch>=2.6,<3
+transformers==4.57.6
+huggingface-hub==0.36.2
+tokenizers==0.22.2
+safetensors>=0.4.3

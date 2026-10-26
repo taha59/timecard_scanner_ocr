@@ -1,0 +1,28 @@
+.venv/
+__pycache__/
+.pytest_cache/
+frontend/node_modules/
+frontend/dist/
+frontend/*.tsbuildinfo
+training_data/
+debug_crops/
+model_cache/
+ui-*.png
+
+# Local backup archives and machine-specific files
+backups/
+.DS_Store
+.env
+.env.*
+!.env.example
+
+# Private employee photos and screenshots stay in the local snapshot
+/fixtures/*.jpg
+/fixtures/*.JPG
+/*-verification.png
+/layout_contact.jpg
+
+*.log
+/evaluation*.json
+/grid-rewrite-*.json
+/new-photo-verification.*

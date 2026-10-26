@@ -1,0 +1,170 @@
+{
+  "purpose": "Public source backup before on-device OCR/PWA changes",
+  "private_media_included": false,
+  "files": [
+    {
+      "path": ".dockerignore",
+      "sha256": "7ec4fe8fb89fc0f59b073d6796eaa82b0302ef0b0651bd7c8525d65f1ccee17b"
+    },
+    {
+      "path": ".gitignore",
+      "sha256": "34213e35d13f1a8650ee115083cbc70d6d2a978a5f6acca922bc2e568cf9fded"
+    },
+    {
+      "path": "DEPLOYMENT.md",
+      "sha256": "881b932044039b21dd46cbfcd7c3ea206e11e24f2abf7e4d8af9e066656ef7a7"
+    },
+    {
+      "path": "Dockerfile",
+      "sha256": "3708d06c8637d8e77b40dd75a8495efae7b247d57c08b9da27624140d7320bf1"
+    },
+    {
+      "path": "GRID_ALIGNMENT_FIX.md",
+      "sha256": "77b8354f845af3c9e49d62f148fb256d184c2d19cd734e0870d45b9166185010"
+    },
+    {
+      "path": "OCR_COMPARISON.md",
+      "sha256": "cffd9535ec8bfd4099bfc000bff17169f0049538a7d4971bc6c2f6b7db87aaaa"
+    },
+    {
+      "path": "PHOTO_SCAN_FIX.md",
+      "sha256": "60d8595f6d61f9d88c11db539ab486b0d18cd909832772c230b0bfaa965e6325"
+    },
+    {
+      "path": "README.md",
+      "sha256": "a38cab62c08c1cc733e61c784a493e3d1839fff61f5398b7d48476404bda5986"
+    },
+    {
+      "path": "VERIFICATION.md",
+      "sha256": "696212a98b70cfeb36666877cb182e5be8ef2c5ecaf19f53a3b20cfae74edce3"
+    },
+    {
+      "path": "backend/__init__.py",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "backend/app.py",
+      "sha256": "05985bdceaf1badf070d4dd899119180706d509daae0d0d9665b0c8fc7acb619"
+    },
+    {
+      "path": "backend/calculator.py",
+      "sha256": "e42d9ec47a14941dab649b81589a4eef1e57ce60983a4ccba3919705cff483c0"
+    },
+    {
+      "path": "backend/extractor.py",
+      "sha256": "3244eb40d6a873b579c05a237485794ddc0c5cdd03ca9f81158cb4af4f5a140e"
+    },
+    {
+      "path": "backend/ocr_common.py",
+      "sha256": "5c197f28e220733eeff348c55aa1a5e6c9f670bfd77957760313181791284a8f"
+    },
+    {
+      "path": "backend/rapid_recognizer.py",
+      "sha256": "ec0e01993f28a6489c9fee7a320531884e999e1d59c73b1ff8c41fd7ac553eb0"
+    },
+    {
+      "path": "backend/recognizer.py",
+      "sha256": "6c89c46446c1a88177ef2c2f45999b3949e39129fe9a5ae67d780c4261c7ffa2"
+    },
+    {
+      "path": "browser_test.cjs",
+      "sha256": "c3c2e17844aa7f373ecbf86aa4c7c6d0fe56212b2dcaa31ac9ec43caa9b633e6"
+    },
+    {
+      "path": "download_model.py",
+      "sha256": "289059c56cebbd61d26140331f0cc694b3555c7bbac4ad2baa7a4e8916bb3152"
+    },
+    {
+      "path": "evaluate.py",
+      "sha256": "8ef6c2fe48cafb83b52f0d82c9b3509634632b0824c43da58318dc25424db163"
+    },
+    {
+      "path": "fixtures/README.md",
+      "sha256": "5135c86d955da73d1cf197d26ad29fef7d1ed14ffcf0acf5edcdae28e29a47cf"
+    },
+    {
+      "path": "fixtures/ground_truth.json",
+      "sha256": "ed28cffe5e36fbe7695fbc16a281a30a49790b08b2cc33b07cbe357e4b911bff"
+    },
+    {
+      "path": "fixtures/novel-five-ground-truth.json",
+      "sha256": "e1e3a6e43b2fb8f8b0e17c6ff55e015df3b51769bd59f4976f789ce5c7c12796"
+    },
+    {
+      "path": "frontend/index.html",
+      "sha256": "2cb98a7617223c8e935637c9a6434c9862e4c5c2ba4614d96d9cee9e42b5465f"
+    },
+    {
+      "path": "frontend/package-lock.json",
+      "sha256": "11a62988acc73c30e5dc4614b837a283aeba33a7630e1d66070f39dadaf8153c"
+    },
+    {
+      "path": "frontend/package.json",
+      "sha256": "92a89aeff266edce1ca8305c5fb8534475d5dcbb9123d9af39ff65db7eef6f77"
+    },
+    {
+      "path": "frontend/src/main.tsx",
+      "sha256": "0f1e5afda5f8e5464d774d847c9c4b09df8d30aa46452034990c6b12983d0954"
+    },
+    {
+      "path": "frontend/src/style.css",
+      "sha256": "1f90373ae43d07b5e73fef7aec423dd638c113f0ff5acaa2f85c578a039e6c38"
+    },
+    {
+      "path": "frontend/tsconfig.json",
+      "sha256": "ba5cdb1b5fed52215198381d387f55deb41bd8a6efdffcf40aa4f94f4a6ae0d6"
+    },
+    {
+      "path": "frontend/vite.config.ts",
+      "sha256": "040799c6434fbf3ca9023307a8067a022b199d4533b0e38871eccffb9917c698"
+    },
+    {
+      "path": "probe_layout.py",
+      "sha256": "6eb674c49fe0393016389b683c1df7a8840fbe57a9d6aff8edcb52924f6e83cd"
+    },
+    {
+      "path": "requirements-trocr.txt",
+      "sha256": "febe666e6c2bd3649b2c6ab82e034a8e51ce55f8ba068f77bd1427b99ac3e46d"
+    },
+    {
+      "path": "requirements.txt",
+      "sha256": "9aacede0d978cc6b2a1222f0fbfe87e3e15223a38180b8a32e8168f02938ae43"
+    },
+    {
+      "path": "scripts/verify_grid_alignment.py",
+      "sha256": "c331a7b7d5d5093f5e207a4b7bf1e6f7bb66565f34cc482f29d094c7b1e9de13"
+    },
+    {
+      "path": "scripts/verify_photo_scans.py",
+      "sha256": "6363d46f2b794cd5082f0a68b0e5974e160809fc6f10e801a42734ef9001326b"
+    },
+    {
+      "path": "tests/__init__.py",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "tests/conftest.py",
+      "sha256": "ba27d745c2848d08f75e973fe4ba4a4bc1ed909e5928148a2b9c4cee4c21efd5"
+    },
+    {
+      "path": "tests/test_api.py",
+      "sha256": "44e88b19a17776fe6e79c509ee1a9674a32e21e88c3d7a25d98c8f927f1a7576"
+    },
+    {
+      "path": "tests/test_calculator.py",
+      "sha256": "146dcc8576dd80e14d7da4c1bdf47003b2b8173969738200383ce64a11a336a1"
+    },
+    {
+      "path": "tests/test_layout.py",
+      "sha256": "b814196ea072b33a6a1a77393aa775f969cf7254badaee2e0ba6564eb5517ac9"
+    },
+    {
+      "path": "tests/test_recognizer.py",
+      "sha256": "9f9737c7c1e0124fa573d6012976b851205df2e83e9778ab41d183089a26cd2d"
+    },
+    {
+      "path": "ui_test.cjs",
+      "sha256": "e10f2b2da5cf5056dd27414915c8fbe6e7f2cddf638630fbbd73b2ea6ccfed12"
+    }
+  ]
+}
