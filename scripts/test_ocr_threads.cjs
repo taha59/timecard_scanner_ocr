@@ -1,0 +1,15 @@
+const assert=require('node:assert/strict'),vm=require('node:vm');
+const {buildSync}=require('../frontend/node_modules/esbuild');
+const context={};vm.createContext(context);
+vm.runInContext(buildSync({entryPoints:['frontend/src/ocr-threads.ts'],bundle:true,write:false,format:'iife',globalName:'threads'}).outputFiles[0].text,context);
+const {ocrThreadCount}=context.threads;
+assert.equal(ocrThreadCount('4',true,true,8),4);
+assert.equal(ocrThreadCount('4',true,true,2),2);
+assert.equal(ocrThreadCount('2',true,true,8),2);
+assert.equal(ocrThreadCount('1',true,true,8),1);
+assert.equal(ocrThreadCount('4',false,true,8),1);
+assert.equal(ocrThreadCount('4',true,false,8),1);
+assert.equal(ocrThreadCount('4',true,true,0),1);
+assert.equal(ocrThreadCount('99',true,true,8),2);
+assert.equal(ocrThreadCount(undefined,true,true,8),4);
+console.log('PASS: supported thread limits respect CPU count, isolation and shared-memory availability.');

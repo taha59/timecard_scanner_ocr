@@ -2,8 +2,8 @@ import * as ort from 'onnxruntime-web/wasm';
 import wasmUrl from 'onnxruntime-web/ort-wasm-simd-threaded.wasm?url';
 import wasmModuleUrl from 'onnxruntime-web/ort-wasm-simd-threaded.mjs?url';
 import {skipFallback,cropStage,type CropReading,type CropTask} from './ocr-policy';
-const requestedThreads=import.meta.env.VITE_OCR_THREADS==='1'?1:2;
-ort.env.wasm.numThreads=self.crossOriginIsolated&&typeof SharedArrayBuffer!=='undefined'?Math.min(2,Math.max(1,requestedThreads),navigator.hardwareConcurrency||1):1;
+import {ocrThreadCount} from './ocr-threads';
+ort.env.wasm.numThreads=ocrThreadCount(import.meta.env.VITE_OCR_THREADS,self.crossOriginIsolated,typeof SharedArrayBuffer!=='undefined',navigator.hardwareConcurrency||1);
 ort.env.wasm.proxy=false;
 // These URLs previously had no COEP headers and may be cached indefinitely.
 // A new cache key forces a header-correct fetch when enabling threaded workers.

@@ -6,7 +6,36 @@ The recognition model and vocabulary are unchanged: PP-OCRv6 medium,
 No quantization, retraining, reduced input resolution, or altered time arithmetic
 was introduced.
 
-## Measured local browser results
+## Four-thread follow-up (same recognition model)
+
+The current default is up to four WASM CPU threads inside one OCR worker/model
+session. The count is capped by reported CPU cores; browsers without isolation
+or shared memory use one. A startup failure still retries once with one thread.
+`VITE_OCR_THREADS=1`, `2`, or `4` provides an explicit build-time limit.
+
+Real supplied photos, browser WASM, same computer, cached weights, current
+label-edge recovery code in both configurations:
+
+| Photo | Two threads total / reading | Four threads total / reading | Total reduction |
+| --- | ---: | ---: | ---: |
+| Five cards | 32.93 / 31.57 s | 20.87 / 19.33 s | 36.6% |
+| Seven cards | 47.57 / 45.70 s | 29.99 / 28.13 s | 37.0% |
+
+A reversed-order seven-card repeat measured 29.66 s with four threads and
+48.01 s with two (38.2% lower total), again with identical statuses and times.
+
+The final default-four production build repeated five cards in 20.23 s
+(18.81 s reading), with identical fields to the two-thread baseline.
+
+Both configurations inferred the same 248/309 and 360/448 crops respectively,
+with identical day statuses and IN/OUT fields (35 + 49 rows, 168 time fields).
+This compares outputs, not correctness against annotations. No synthetic
+photos were used. The model, input dimensions, crop policy, parsing, cancellation,
+privacy and cache behavior are unchanged. Real photos and raw results remain
+local. These desktop measurements do not predict speed or battery use on every
+phone; physical iPhone/Android testing remains necessary.
+
+## Earlier optimization measurements (historical two-thread default)
 
 Same supplied five-card photograph, cached model, same computer and browser:
 
@@ -56,3 +85,8 @@ Runtime module/binary URLs use a new cache key so browsers with pre-isolation
 cached assets fetch the current COEP-enabled headers. Startup has a 30-second
 watchdog and one single-thread retry on initialization failure; cancellation
 still terminates the active worker. The retry uses the same cached model weights.
+
+Live verification after rollout: five synthetic cards completed in 26.70s
+(9.18s crop preparation, 0.68s model startup, 14.56s recognition on two threads).
+113 of 183 synthetic crop tasks were inferred; 70 fallbacks were avoided. This
+synthetic case is separate from the real-photo before/after benchmark above.
