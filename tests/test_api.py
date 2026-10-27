@@ -19,18 +19,18 @@ def test_scan_and_calculate_without_photo_storage(client):
     response=client.post('/api/scan',data={'image':(BytesIO((ROOT/'fixtures/timecards.jpg').read_bytes()),'photo.jpg')})
     assert response.status_code==200
     scan=response.get_json();assert len(scan['cards'])==5
-    assert all(c['totals']['grand']['minutes'] is None for c in scan['cards'])
+    assert all(c['totals']['grand']['minutes'] is not None for c in scan['cards'])
     corrected=card_from_truth(GROUND[0]);corrected['days'][0]['reviewed']=True
     recalculated=client.post('/api/calculate',json={'cards':[corrected]})
     assert recalculated.status_code==200
-    assert recalculated.json['cards'][0]['totals']['grand']['hm']=='51:53'
+    assert recalculated.json['cards'][0]['totals']['grand']['hm']==GROUND[0]['regular']
     assert client.post('/api/training',json={'cards':scan['cards']}).status_code==404
     assert client.get('/api/training/'+'a'*32).status_code==404
 
 def test_manual_mode(client):
     r=client.post('/api/scan',data={'image':(BytesIO((ROOT/'fixtures/timecards.jpg').read_bytes()),'photo.jpg'),'manual':'true'})
     assert r.status_code==200 and r.json['manual']
-    assert all(not c['totals']['complete'] for c in r.json['cards'])
+    assert all(c['totals']['regular']['minutes']==0 for c in r.json['cards'])
 
 
 @pytest.mark.parametrize('filename,count',[('october-group.jpg',7),('october-single.jpg',1)])
@@ -55,7 +55,7 @@ def test_malformed_confidence(client):
 def test_written_total_cannot_break_calculation(client):
     card=card_from_truth(GROUND[0]);card['written_total']='9999.99'
     r=client.post('/api/calculate',json={'cards':[card]})
-    assert r.status_code==200 and r.json['cards'][0]['totals']['regular']['hm']=='51:53'
+    assert r.status_code==200 and r.json['cards'][0]['totals']['regular']['hm']==GROUND[0]['regular']
 
 
 @pytest.mark.parametrize('rotation',[0,90,180,270])

@@ -60,10 +60,12 @@ def adjustment_minutes(value):
     return result
 
 
-def calculate_day(day, confidence_threshold=.8):
+def calculate_day(day, confidence_threshold=.8, punch_only=False):
     result = deepcopy(day)
     flags = []
     status = day.get('status', 'unknown')
+    if punch_only:
+        status='worked' if str(day.get('in') or '').strip() or str(day.get('out') or '').strip() else 'blank'
     minutes = None
     if status not in STATUSES:
         flags.append('Unknown day status')
@@ -92,12 +94,12 @@ def calculate_day(day, confidence_threshold=.8):
                     flags.append('Zero-length shift: verify punches')
             except ValueError as error:
                 flags.append(str(error))
-    for key in ('confidence', 'in_confidence', 'out_confidence', 'status_confidence'):
+    for key in (('confidence', 'in_confidence', 'out_confidence') if punch_only else ('confidence', 'in_confidence', 'out_confidence', 'status_confidence')):
         confidence = day.get(key)
         if confidence is not None and (not isinstance(confidence, (int, float)) or not confidence_threshold <= confidence <= 1):
             flags.append('Low OCR confidence: verify original crop')
             break
-    if day.get('status_guessed'):
+    if day.get('status_guessed') and not punch_only:
         flags.append('Status guessed from ink fraction: verify original crop')
     if day.get('ocr_recovered'):
         flags.append('Tentative OCR recovery: verify digits against source crop')
@@ -105,12 +107,12 @@ def calculate_day(day, confidence_threshold=.8):
         flags.append('Alternate OCR crop not checked: verify original crop')
     if day.get('ocr_conflict'):
         flags.append('OCR readings disagree: verify original crop')
-    if day.get('source') == 'ocr' and not day.get('reviewed', False):
+    if not punch_only and day.get('source') == 'ocr' and not day.get('reviewed', False):
         flags.append('OCR row not yet reviewed')
     adjustment = None
     try:
-        adjustment = adjustment_minutes(day.get('adjustment_hours', '0'))
-        if day.get('adjustment_confirmed', True) is not True:
+        adjustment = 0 if punch_only else adjustment_minutes(day.get('adjustment_hours', '0'))
+        if not punch_only and day.get('adjustment_confirmed', True) is not True:
             adjustment = None
             flags.append('Adjustment note requires confirmation; not added')
     except ValueError as error:
@@ -136,16 +138,16 @@ def written_total_candidates(value):
     return candidates
 
 
-def calculate_card(card, confidence_threshold=.8):
+def calculate_card(card, confidence_threshold=.8, punch_only=False):
     result = deepcopy(card)
-    days = [calculate_day(day, confidence_threshold) for day in card.get('days', [])]
+    days = [calculate_day(day, confidence_threshold, punch_only) for day in card.get('days', [])]
     if len(days) != 7:
         raise ValueError('Each card must contain exactly 7 day slots')
     punch_known = sum(day['computed']['minutes'] or 0 for day in days)
     adjustment_known = sum(day['adjustment']['minutes'] or 0 for day in days)
     punch_complete = all(day['computed']['minutes'] is not None for day in days)
     adjustment_complete = all(day['adjustment']['minutes'] is not None for day in days)
-    regular = punch_known if punch_complete else None
+    regular = punch_known if punch_only or punch_complete else None
     adjustments = adjustment_known if adjustment_complete else None
     grand = regular + adjustments if regular is not None and adjustments is not None else None
     totals = {'regular': format_minutes(regular), 'adjustments': format_minutes(adjustments),
@@ -172,5 +174,5 @@ def calculate_card(card, confidence_threshold=.8):
     return result
 
 
-def calculate_cards(cards, confidence_threshold=.8):
-    return [calculate_card(card, confidence_threshold) for card in cards]
+def calculate_cards(cards, confidence_threshold=.8, punch_only=False):
+    return [calculate_card(card, confidence_threshold, punch_only) for card in cards]

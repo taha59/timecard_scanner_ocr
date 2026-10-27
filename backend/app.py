@@ -29,7 +29,7 @@ def validate_cards(cards):
         for key in ['name','written_total']:
             if not isinstance(card.get(key,''),str) or len(card.get(key,''))>200:raise ValueError(f'Invalid {key}')
         for day in card['days']:
-            if not isinstance(day,dict) or day.get('status') not in STATUSES:raise ValueError('Invalid day status')
+            if not isinstance(day,dict) or day.get('status','unknown') not in STATUSES:raise ValueError('Invalid day status')
             for key in ['in','out','adjustment_hours','note']:
                 if not isinstance(day.get(key,''),str) or len(day.get(key,''))>500:raise ValueError(f'Invalid {key}')
             for key in ['confidence','in_confidence','out_confidence','status_confidence']:
@@ -113,7 +113,7 @@ def create_app(recognizer=None):
     def calculate():
         body=request.get_json()
         if not isinstance(body,dict):raise ValueError('Expected a JSON object with cards')
-        return jsonify(cards=calculate_cards(validate_cards(body.get('cards'))))
+        return jsonify(cards=calculate_cards(validate_cards(body.get('cards')),punch_only=True))
 
     @app.post('/api/scan')
     @limited_image_work
@@ -153,7 +153,7 @@ def create_app(recognizer=None):
                         return jsonify(error='The optional server OCR reader is unavailable. Choose device OCR or manual entry.'),503
                 active=reader
         cards=extract(image,active)
-        return jsonify(scan_id=uuid4().hex,cards=calculate_cards(cards),manual=manual,message='Manual mode: no handwriting was recognized. Enter and verify every punch and inspect adjustment notes.' if manual else 'All OCR values require review. Inspect every crop and adjustment area.')
+        return jsonify(scan_id=uuid4().hex,cards=calculate_cards(cards,punch_only=True),manual=manual,message='Manual mode: no handwriting was recognized. Enter both times for each worked day.' if manual else 'All OCR values require review. Check the times against the source photo.')
 
     @app.get('/api/device-model')
     def device_model():return jsonify(**model_manifest,url='/api/device-model/weights')
@@ -183,7 +183,7 @@ def create_app(recognizer=None):
             score=value.get('confidence')
             if isinstance(score,bool) or not isinstance(score,(int,float)) or not 0<=score<=1:raise ValueError('Invalid device confidence')
         cards=extract(None,DeviceRecognizer(readings),layouts=layouts)
-        return jsonify(scan_id=uuid4().hex,cards=calculate_cards(cards),manual=False,message='Device OCR complete. Review every entry. Photos were processed in server memory only; no photos or scans were saved.')
+        return jsonify(scan_id=uuid4().hex,cards=calculate_cards(cards,punch_only=True),manual=False,message='Device OCR complete. Review every entry. Photos were processed in server memory only; no photos or scans were saved.')
 
     dist=Path(__file__).parents[1]/'frontend'/'dist'
     @app.get('/')
