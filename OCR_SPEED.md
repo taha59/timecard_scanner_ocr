@@ -9,9 +9,19 @@ was introduced.
 ## Four-thread follow-up (same recognition model)
 
 The current default is up to four WASM CPU threads inside one OCR worker/model
-session. The count is capped by reported CPU cores; browsers without isolation
-or shared memory use one. A startup failure still retries once with one thread.
-`VITE_OCR_THREADS=1`, `2`, or `4` provides an explicit build-time limit.
+session. Four threads are used only when the browser reports at least four CPU threads;
+otherwise the default uses one. Browsers without isolation or shared memory
+also use one. A startup failure still retries once with one thread.
+`VITE_OCR_THREADS=1`, `2`, or `4` provides an explicit build-time setting;
+if fewer CPU threads are reported than requested, inference uses one.
+Scan timing opens automatically after a scan and shows total time, crop
+preparation, model startup/reuse, OCR reading, actual OCR threads, results
+checking time, reported CPU threads, and processed/skipped crops. No timing
+telemetry is uploaded.
+The main scan indicator shows a handwriting progress bar and percentage;
+server preparation and final checking use an indeterminate indicator. Crop
+counts remain in Scan timing. The percentage tracks recognition tasks, not an
+estimate of remaining seconds.
 
 Real supplied photos, browser WASM, same computer, cached weights, current
 label-edge recovery code in both configurations:
