@@ -10,10 +10,15 @@ import {loadDebugStats,saveDebugStats} from './debug-settings';
 import {deviceSupported,modelPresent,downloadModel,removeModel,releaseDeviceModel,recognizeOnDevice,type ModelManifest,type DeviceOcrStats} from './device-ocr';
 
 type Amount={hm:string|null;decimal:string|null;minutes:number|null};
-type Day={raw_in?:string;raw_out?:string;label:string;status:string;in:string;out:string;adjustment_hours:string;adjustment_confirmed:boolean;reviewed:boolean;note:string;image:string;note_image:string;punch_images:string[];computed:Amount;flags:string[]};
+type TimeInference={original:string;value:string;suffix:'am'|'pm';source:'partial_suffix'|'raw_suffix'|'schedule'};
+type Day={time_inference?:Partial<Record<'in'|'out',TimeInference>>;raw_in?:string;raw_out?:string;label:string;status:string;in:string;out:string;adjustment_hours:string;adjustment_confirmed:boolean;reviewed:boolean;note:string;image:string;note_image:string;punch_images:string[];computed:Amount;flags:string[]};
 type Card={id:string;name:string;written_total:string;image:string;days:Day[];needs_review:boolean;totals:{regular:Amount;adjustments:Amount;grand:Amount;known_punch_subtotal:Amount;complete:boolean};cross_check:{message:string|null;candidates:{interpretation:string;hm:string;difference:Amount}[]}};
 type Scan={cards:Card[];scan_id:string;message:string;manual:boolean};
 const amount=(a?:Amount)=>a?.hm==null?'Unresolved':`${a.hm} · ${a.decimal} h`;
+function MeridiemHint({inference}:{inference?:TimeInference}){
+ if(!inference)return null;
+ return <small className="meridiem-hint">{inference.suffix.toUpperCase()} {inference.source==='schedule'?'assumed':inference.source==='partial_suffix'?'inferred':'recovered'}</small>;
+}
 function App(){
  const [file,setFile]=useState<File|null>(null),[preview,setPreview]=useState('');
  const [rotation,setRotation]=useState(0),[previewBusy,setPreviewBusy]=useState(false);
@@ -167,7 +172,14 @@ function App(){
   },350);
  }
  function editCard(ci:number,patch:Partial<Card>){update(cards.map((c,i)=>i===ci?{...c,...patch}:c));}
- function editDay(ci:number,di:number,patch:Partial<Day>){editCard(ci,{days:cards[ci].days.map((d,i)=>i===di?{...d,...patch}:d)});}
+ function editDay(ci:number,di:number,patch:Partial<Day>){
+  if('in' in patch||'out' in patch){
+   const inference={...cards[ci].days[di].time_inference};
+   if('in' in patch)delete inference.in;if('out' in patch)delete inference.out;
+   patch={...patch,time_inference:inference};
+  }
+  editCard(ci,{days:cards[ci].days.map((d,i)=>i===di?{...d,...patch}:d)});
+ }
  const resultsBlocked=pending||Boolean(error);
  const inspectedCard=inspect?cards.find(card=>card.id===inspect.cardId):undefined;
  const current=inspect?inspectedCard?.days[inspect.di]:null;
@@ -188,7 +200,7 @@ function App(){
  {cards.map((card,ci)=>{const expanded=expandedCards[card.id]??ci===0;return <section className="card" key={`${scanId}-${card.id}`}><div className="card-heading"><span className="card-index">{String(Number(card.id)+1).padStart(2,'0')}</span><label className="name-label">Employee name<input aria-label={`Card ${Number(card.id)+1} employee name`} value={card.name} disabled={busy} placeholder="Enter employee name" onChange={e=>editCard(ci,{name:e.target.value})}/></label><button className="card-toggle" aria-label={`${expanded?'Collapse':'Expand'} employee ${ci+1}`} aria-expanded={expanded} aria-controls={`card-body-${card.id}`} onClick={()=>setExpandedCards(previous=>({...previous,[card.id]:!expanded}))}><span aria-hidden="true">{expanded?'▾':'▸'}</span> {expanded?'Hide details':'Show details'}</button></div>
  <div className="card-body" id={`card-body-${card.id}`} hidden={!expanded}>
  <details className="card-source"><summary>View timecard</summary><div className="card-source-content"><img src={card.image} alt={`${card.name||`Employee ${ci+1}`} timecard from uploaded photo`} loading="lazy"/><a href={card.image} target="_blank" rel="noreferrer">Open full card ↗</a></div></details>
- <div className="table-scroll"><table className="punch-table"><colgroup><col className="day-column"/><col/><col/><col className="hours-column"/></colgroup><thead><tr><th>Day / source</th><th>Time in</th><th>Time out</th><th>Hours</th></tr></thead><tbody>{card.days.map((day,di)=><React.Fragment key={di}><tr><td><button className="crop-button" onClick={()=>setInspect({cardId:card.id,di})}><img src={day.image} alt={`${day.label} source crop`}/><span>{day.label} ↗</span></button></td><td><input aria-label={`${card.name} ${day.label} IN`} value={day.in} disabled={busy} placeholder="H:MM" onChange={e=>editDay(ci,di,{in:e.target.value})}/></td><td><input aria-label={`${card.name} ${day.label} OUT`} value={day.out} disabled={busy} placeholder="H:MM" onChange={e=>editDay(ci,di,{out:e.target.value})}/></td><td className="hours">{resultsBlocked?'…':!day.in.trim()&&!day.out.trim()?'—':day.computed.hm??'—'}</td></tr>{day.flags.length>0&&(day.in.trim()||day.out.trim())&&<tr className="flags-row"><td colSpan={4}><details><summary>{day.computed.hm==null?'Incomplete or invalid times — excluded':'Check entry'}</summary><div className="flags">{day.flags.map((f,i)=><span key={i}>{f}</span>)}</div></details></td></tr>}</React.Fragment>)}</tbody></table></div>
+ <div className="table-scroll"><table className="punch-table"><colgroup><col className="day-column"/><col/><col/><col className="hours-column"/></colgroup><thead><tr><th>Day / source</th><th>Time in</th><th>Time out</th><th>Hours</th></tr></thead><tbody>{card.days.map((day,di)=><React.Fragment key={di}><tr><td><button className="crop-button" onClick={()=>setInspect({cardId:card.id,di})}><img src={day.image} alt={`${day.label} source crop`}/><span>{day.label} ↗</span></button></td><td><input aria-label={`${card.name} ${day.label} IN`} value={day.in} disabled={busy} placeholder="H:MM" onChange={e=>editDay(ci,di,{in:e.target.value})}/><MeridiemHint inference={day.time_inference?.in}/></td><td><input aria-label={`${card.name} ${day.label} OUT`} value={day.out} disabled={busy} placeholder="H:MM" onChange={e=>editDay(ci,di,{out:e.target.value})}/><MeridiemHint inference={day.time_inference?.out}/></td><td className="hours">{resultsBlocked?'…':!day.in.trim()&&!day.out.trim()?'—':day.computed.hm??'—'}</td></tr>{day.flags.length>0&&(day.in.trim()||day.out.trim())&&<tr className="flags-row"><td colSpan={4}><details><summary>{day.computed.hm==null?'Incomplete or invalid times — excluded':'Check entry'}</summary><div className="flags">{day.flags.map((f,i)=><span key={i}>{f}</span>)}</div></details></td></tr>}</React.Fragment>)}</tbody></table></div>
  <div className="totals punch-totals" aria-live="polite"><div><span>TOTAL HOURS</span><strong>{resultsBlocked?'Awaiting calculation':amount(card.totals.regular)}</strong>{!resultsBlocked&&!card.totals.complete&&<small>Incomplete or invalid entries excluded.</small>}</div></div>
  <div className="crosscheck"><label>Written total · cross-check only<input aria-label={`${card.name} written total`} placeholder="e.g. 27.07" disabled={busy} value={card.written_total} onChange={e=>editCard(ci,{written_total:e.target.value})}/></label><div><p>{resultsBlocked?'Comparison unavailable until calculation succeeds.':card.cross_check.message||'No written-total mismatch identified. Review every source row before paying.'}</p>{!resultsBlocked&&card.cross_check.candidates.map((c,i)=><small key={i}>{c.interpretation}: {c.hm} · difference: {c.difference.hm??'unresolved'} </small>)}</div></div></div></section>;})}
  </>}

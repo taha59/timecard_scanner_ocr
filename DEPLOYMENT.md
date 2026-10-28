@@ -23,6 +23,7 @@ Render uses its settings at runtime and restarts/redeploys when they change.
 | Render | `APP_ENV` | `production` |
 | Render | `ALLOWED_ORIGINS` | `https://YOUR-APP.vercel.app` |
 | Render | `ENABLE_SERVER_OCR` | `false` |
+| Render | `TIME_INFERENCE_ENABLED` | `true` (optional; set `false` to disable suffix inference) |
 
 The app opens directly without a password. The backend continues to enforce the exact browser-origin allowlist.
 

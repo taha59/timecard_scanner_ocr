@@ -224,15 +224,13 @@ flowchart TD
     API --> Day[For each of seven day rows]
     Day --> Empty{Both fields empty?}
     Empty -->|Yes| Zero[Zero contribution; display a dash]
-    Empty -->|No| Valid{Both clocks present and valid?}
+    Empty -->|No| Infer[Keep full suffixes; complete a/p; infer missing suffixes]
+    Infer --> Valid{Both clocks form a valid same-day pair?}
     Valid -->|No| Exclude[Keep row amount null; flag and exclude from sum]
-    Valid -->|Yes| Explicit{Both clocks explicitly AM/PM?}
-    Explicit -->|Yes| FullDay[Subtract modulo 1440 minutes]
-    Explicit -->|No| HalfDay[Subtract modulo 720 minutes; flag inference]
+    Valid -->|Yes| Interval[Subtract end minus start; flag inferred suffixes]
     Zero --> Sum[Sum valid computed minutes; adjustments are zero]
     Exclude --> Sum
-    FullDay --> Sum
-    HalfDay --> Sum
+    Interval --> Sum
     Sum --> Check[Compare written total after arithmetic]
     Check --> Reply[Return totals and completeness/warning metadata]
     Reply --> Latest{Response still matches current revision?}
@@ -242,7 +240,7 @@ flowchart TD
 
 **Source:** `editDay()`/`update()` in `frontend/src/main.tsx`; `/api/calculate` and `validate_cards()` in `backend/app.py`; `parse_time()`, `calculate_day()`, `calculate_card()`, `format_minutes()`, and `written_total_candidates()` in `backend/calculator.py`.
 
-An incomplete/invalid row does not block the sum of other valid rows; `totals.complete` remains false. A completely empty card totals zero. Written totals never change computed minutes. There are no implemented break deductions or overtime rules.
+An incomplete/invalid row does not block the sum of other valid rows; `totals.complete` remains false. `backend/time_inference.py` owns the editable suffix policy; `backend/clock.py` contains strict clock parsing. Complete suffixes are preserved; same-day conflicts are excluded rather than wrapped overnight. A small field hint identifies assumed/recovered suffixes. Editing a field clears its prior annotation; recalculation ignores stale raw OCR suffixes. See [policy configuration](TIME_INFERENCE.md). Disabling inference restores legacy arithmetic; standalone calculator callers omit the policy by default. A completely empty card totals zero. Written totals never change computed minutes. There are no implemented break deductions or overtime rules.
 
 ## 8. Core feature: cancellation and stale-result protection
 

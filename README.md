@@ -57,13 +57,14 @@ See [Flow diagrams](docs/FLOW_DIAGRAMS.md) for the architecture and step-by-step
 - **Source images:** Day crops stay beside the time fields. Tap a crop to enlarge it or expand **View timecard** for the full card.
 - **Direct editing:** Enter Time in and Time out without changing a status or marking a row reviewed.
 - **Automatic totals:** Complete, valid time pairs count toward the total. Empty rows contribute nothing; incomplete or invalid rows are excluded and flagged. Notes and adjustments are not included.
+- **Missing AM/PM:** Complete suffixes stay unchanged. Trailing `a`/`p` is completed first; missing suffixes then use editable same-day schedule preferences. Assumptions are labeled for review.
 - **Written-total comparison:** The handwritten total is a cross-check; it never changes calculated hours.
 - **Manual entry:** **Extract crops for manual entry** provides the images without running OCR.
 - **Model comparison:** Medium is the default. Select PP-OCRv6 Small to test faster recognition; both models are cached separately. Small can miss more handwriting.
 - **Progress and timing:** A progress bar shows recognition progress. Timing breakdowns are hidden by default; turn on **Debug statistics** at the bottom of the page to see them. The browser remembers your choice.
 - **Cancellation:** Users can stop a scan and retry.
 
-Include AM/PM when correcting times, especially for overnight or long shifts. If either time lacks AM/PM, the calculator uses a 12-hour interpretation and shows a warning.
+Shifts must finish within the same day, no later than 11:59 PM. Conflicting times are left unchanged and excluded from totals for review. See [AM/PM policy](docs/TIME_INFERENCE.md) to edit or disable the rules.
 
 ## Where to find the code
 
@@ -83,6 +84,8 @@ Include AM/PM when correcting times, especially for overnight or long shifts. If
 | `backend/extractor.py` | Card detection and crop boundaries |
 | `backend/device_ocr.py` | Preparing crop tasks and combining returned readings |
 | `backend/ocr_common.py` | Cleaning messy OCR strings into time candidates |
+| `backend/time_inference.py` | Editable AM/PM evidence, preferences, and same-day policy |
+| `backend/clock.py` | Shared strict clock parser, without schedule biases |
 | `backend/calculator.py` | Time validation, day hours, totals, or warnings |
 | `backend/device-model*.json` | Medium/Small model filenames, checksums, sizes, and vocabulary |
 | `tests/` and `scripts/test_*.cjs` | Backend and frontend-logic checks |

@@ -13,7 +13,7 @@ w.eval(buildSync({entryPoints:['frontend/src/main.tsx'],bundle:true,write:false,
 const {within,waitFor}=require('../frontend/node_modules/@testing-library/dom');
 const user=require('../frontend/node_modules/@testing-library/user-event').default.setup({document:w.document});const screen=within(w.document.body);
 const amount={hm:'8:00',decimal:'8.00',minutes:480};
-function card(name){return {id:'0',name,image:'data:image/png;base64,crop',written_total:'',days:Array.from({length:7},(_,i)=>({label:`Day ${i+1}`,status:'worked',in:'9:00am',out:'5:00pm',adjustment_hours:'0',adjustment_confirmed:false,reviewed:false,note:'',image:'data:image/png;base64,crop',note_image:'',punch_images:[],computed:amount,flags:[]})),totals:{regular:amount,complete:true},cross_check:{message:null,candidates:[]}};}
+function card(name){return {id:'0',name,image:'data:image/png;base64,crop',written_total:'',days:Array.from({length:7},(_,i)=>({...(i===0?{time_inference:{in:{original:'9:00',value:'9:00am',suffix:'am',source:'schedule'},out:{original:'5:00',value:'5:00pm',suffix:'pm',source:'partial_suffix'}}}:{}),label:`Day ${i+1}`,status:'worked',in:'9:00am',out:'5:00pm',adjustment_hours:'0',adjustment_confirmed:false,reviewed:false,note:'',image:'data:image/png;base64,crop',note_image:'',punch_images:[],computed:amount,flags:[]})),totals:{regular:amount,complete:true},cross_check:{message:null,candidates:[]}};}
 const job={layouts:['layout0','layout1'],tasks:[{id:'a',image:'a'},{id:'b',image:'b'}],card_tasks:[['a'],['b']]};
 (async()=>{
  await waitFor(()=>screen.getByText('PaddleOCR PP-OCRv6 Medium ready on this device'));
@@ -28,6 +28,7 @@ const job={layouts:['layout0','layout1'],tasks:[{id:'a',image:'a'},{id:'b',image
  requests[1].resolve(response({cards:[card('First')],scan_id:'server0'}));
  await waitFor(()=>screen.getByRole('heading',{name:'1 card to review'}));
  assert.ok(screen.getByRole('link',{name:'View 1 of 2 ready timecards ↓'}));
+ assert.ok(screen.getByText('AM assumed'));assert.ok(screen.getByText('PM inferred'));
  assert.equal(screen.getByRole('textbox',{name:'First Day 1 IN'}).disabled,true);
  assert.equal(screen.getByRole('textbox',{name:'Card 1 employee name'}).disabled,true);
  await user.click(screen.getByAltText('Day 1 source crop').closest('button'));assert.ok(screen.getByRole('dialog',{name:'Inspect day crop'}));
@@ -91,6 +92,16 @@ const job={layouts:['layout0','layout1'],tasks:[{id:'a',image:'a'},{id:'b',image
  assert.ok(screen.getByDisplayValue('Corrected'));assert.ok(screen.getByDisplayValue('Recovered'));
  assert.equal(screen.queryByRole('button',{name:/Retry unfinished cards/}),null);
  await user.click(screen.getByRole('button',{name:'Close ×'}));
+ const recoveredSection=screen.getByDisplayValue('Recovered').closest('section.card');
+ await user.clear(screen.getByRole('textbox',{name:'Recovered Day 1 IN'}));
+ await user.type(screen.getByRole('textbox',{name:'Recovered Day 1 IN'}),'9:00am');
+ await waitFor(()=>assert.equal(requests.length,12));
+ const edited=JSON.parse(requests[11].options.body).cards;
+ assert.equal(edited[0].days[0].time_inference.in,undefined);
+ assert.equal(edited[0].days[0].time_inference.out.source,'partial_suffix');
+ requests[11].resolve(response({cards:edited}));
+ await waitFor(()=>assert.equal(within(recoveredSection).queryByText('AM assumed'),null));
+ assert.ok(within(recoveredSection).getByText('PM inferred'));
  console.log('PASS: a completed card is viewable during remaining OCR, fields stay locked, later cards preserve open previews, finish unlocks editing, and cancel retains completed cards without accepting late results.');
  w.dispatchEvent(new w.Event('pagehide'));dom.window.close();
 })().catch(e=>{console.error(e);w.dispatchEvent(new w.Event('pagehide'));dom.window.close();process.exitCode=1;});

@@ -15,6 +15,7 @@ from werkzeug.exceptions import HTTPException
 from .calculator import calculate_cards,STATUSES
 from .extractor import extract,detect_cards
 from .recognizer import create_recognizer,UnavailableRecognizer
+from .time_inference import DEFAULT_POLICY
 
 
 class MemoryUploadRequest(Request):
@@ -44,6 +45,7 @@ def create_app(recognizer=None):
     app.config['MAX_CONTENT_LENGTH']=20*1024*1024
     production=os.getenv('APP_ENV','development')=='production'
     server_ocr=os.getenv('ENABLE_SERVER_OCR','false').lower()=='true'
+    time_policy=DEFAULT_POLICY if os.getenv('TIME_INFERENCE_ENABLED','true').lower() not in {'false','0','off'} else None
     origins={origin.strip().rstrip('/') for origin in os.getenv('ALLOWED_ORIGINS','').split(',') if origin.strip()}
     for origin in origins:
         parsed=urlsplit(origin)
@@ -133,7 +135,7 @@ def create_app(recognizer=None):
     def calculate():
         body=request.get_json()
         if not isinstance(body,dict):raise ValueError('Expected a JSON object with cards')
-        return jsonify(cards=calculate_cards(validate_cards(body.get('cards')),punch_only=True))
+        return jsonify(cards=calculate_cards(validate_cards(body.get('cards')),punch_only=True,time_policy=time_policy))
 
     @app.post('/api/scan')
     @limited_image_work
@@ -189,7 +191,7 @@ def create_app(recognizer=None):
                         return jsonify(error='The optional server OCR reader is unavailable. Choose device OCR or manual entry.'),503
                 active=reader
         cards=extract(image,active,include_notes=False,include_auxiliary_images=False)
-        return jsonify(scan_id=uuid4().hex,cards=calculate_cards(cards,punch_only=True),manual=manual,message='Manual mode: no handwriting was recognized. Enter both times for each worked day.' if manual else 'All OCR values require review. Check the times against the source photo.')
+        return jsonify(scan_id=uuid4().hex,cards=calculate_cards(cards,punch_only=True,time_policy=time_policy,use_ocr_evidence=not manual),manual=manual,message='Manual mode: no handwriting was recognized. Enter both times for each worked day.' if manual else 'All OCR values require review. Check the times against the source photo.')
 
     @app.get('/api/device-model')
     def device_model():
@@ -229,7 +231,7 @@ def create_app(recognizer=None):
         cards=extract(None,DeviceRecognizer(readings),layouts=layouts,include_notes=False,include_auxiliary_images=False)
         g.stage_timings.append(('reconstruct',(perf_counter()-stage_started)*1000))
         stage_started=perf_counter()
-        response=jsonify(scan_id=uuid4().hex,cards=calculate_cards(cards,punch_only=True),manual=False,message='Device OCR complete. Review every entry. Photos were processed in server memory only; no photos or scans were saved.')
+        response=jsonify(scan_id=uuid4().hex,cards=calculate_cards(cards,punch_only=True,time_policy=time_policy,use_ocr_evidence=True),manual=False,message='Device OCR complete. Review every entry. Photos were processed in server memory only; no photos or scans were saved.')
         g.stage_timings.append(('response_build',(perf_counter()-stage_started)*1000))
         return response
 

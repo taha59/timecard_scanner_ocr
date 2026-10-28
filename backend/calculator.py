@@ -6,28 +6,10 @@ never an invented zero. Written totals are compared only AFTER punch arithmetic.
 from copy import deepcopy
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 import re
+from .clock import normalize_time, parse_time
+from .time_inference import infer_time_pair
 
 STATUSES = {'worked', 'off', 'blank', 'crossed_out', 'unknown'}
-
-
-def normalize_time(value):
-    text = str(value or '').strip().lower().translate(str.maketrans({'o': '0', 'l': '1', 'i': '1', ';': ':'}))
-    text = re.sub(r'([ap])\s*\.?\s*m\.?', r'\1m', text)
-    return re.sub(r'(?<=\d)\.$', '', re.sub(r'\s+', '', text))
-
-
-def parse_time(value):
-    """Return (minutes on clock, explicit meridiem). Reject trailing notes."""
-    text = normalize_time(value)
-    match = re.fullmatch(r'(\d{1,2})[:.](\d{1,2})(am|pm)?', text)
-    if not match:
-        raise ValueError('Unreadable time; enter H:MM with optional AM/PM')
-    hour, minute, meridiem = int(match[1]), int(match[2]), match[3]
-    if minute > 59 or (meridiem and not 1 <= hour <= 12) or (not meridiem and not 0 <= hour <= 23):
-        raise ValueError('Time is outside the valid clock range')
-    if meridiem:
-        hour = hour % 12 + (12 if meridiem == 'pm' else 0)
-    return hour * 60 + minute, bool(meridiem)
 
 
 def format_minutes(minutes):
@@ -60,9 +42,20 @@ def adjustment_minutes(value):
     return result
 
 
-def calculate_day(day, confidence_threshold=.8, punch_only=False):
+def calculate_day(day, confidence_threshold=.8, punch_only=False, time_policy=None, use_ocr_evidence=False):
     result = deepcopy(day)
     flags = []
+    inference = None
+    if time_policy is not None and time_policy.enabled:
+        inference = infer_time_pair(day.get('in'), day.get('out'), policy=time_policy,
+                                    raw_start=day.get('raw_in', '') if use_ocr_evidence else '',
+                                    raw_end=day.get('raw_out', '') if use_ocr_evidence else '',
+                                    previous=day.get('time_inference'))
+        if inference.start != str(day.get('in') or '').strip():result['in'] = inference.start
+        if inference.end != str(day.get('out') or '').strip():result['out'] = inference.end
+        if inference.annotations:result['time_inference'] = inference.annotations
+        else:result.pop('time_inference', None)
+        flags.extend(inference.flags)
     status = day.get('status', 'unknown')
     if punch_only:
         status='worked' if str(day.get('in') or '').strip() or str(day.get('out') or '').strip() else 'blank'
@@ -78,16 +71,21 @@ def calculate_day(day, confidence_threshold=.8, punch_only=False):
     elif status == 'unknown':
         flags.append('Unreadable day status: human review required')
     else:
-        if not str(day.get('in') or '').strip() or not str(day.get('out') or '').strip():
+        if not str(result.get('in') or '').strip() or not str(result.get('out') or '').strip():
             flags.append('Missing punch')
+        elif inference is not None and inference.conflict:
+            pass  # Keep recognized suffixes; exclude a conflicting pair for review.
         else:
             try:
-                start, start_explicit = parse_time(day.get('in'))
-                end, end_explicit = parse_time(day.get('out'))
-                modulus = 1440 if start_explicit and end_explicit else 720
-                minutes = (end - start) % modulus
-                if modulus == 720:
-                    flags.append('AM/PM inferred')
+                if inference is not None and inference.minutes is not None:
+                    minutes = inference.minutes
+                else:
+                    start, start_explicit = parse_time(result.get('in'))
+                    end, end_explicit = parse_time(result.get('out'))
+                    modulus = 1440 if start_explicit and end_explicit else 720
+                    minutes = (end - start) % modulus
+                    if modulus == 720:
+                        flags.append('AM/PM inferred')
                 if minutes > 720:
                     flags.append('Shift over 12 hours')
                 if minutes == 0:
@@ -138,9 +136,9 @@ def written_total_candidates(value):
     return candidates
 
 
-def calculate_card(card, confidence_threshold=.8, punch_only=False):
+def calculate_card(card, confidence_threshold=.8, punch_only=False, time_policy=None, use_ocr_evidence=False):
     result = deepcopy(card)
-    days = [calculate_day(day, confidence_threshold, punch_only) for day in card.get('days', [])]
+    days = [calculate_day(day, confidence_threshold, punch_only, time_policy, use_ocr_evidence) for day in card.get('days', [])]
     if len(days) != 7:
         raise ValueError('Each card must contain exactly 7 day slots')
     punch_known = sum(day['computed']['minutes'] or 0 for day in days)
@@ -174,5 +172,5 @@ def calculate_card(card, confidence_threshold=.8, punch_only=False):
     return result
 
 
-def calculate_cards(cards, confidence_threshold=.8, punch_only=False):
-    return [calculate_card(card, confidence_threshold, punch_only) for card in cards]
+def calculate_cards(cards, confidence_threshold=.8, punch_only=False, time_policy=None, use_ocr_evidence=False):
+    return [calculate_card(card, confidence_threshold, punch_only, time_policy, use_ocr_evidence) for card in cards]
