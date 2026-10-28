@@ -3,7 +3,6 @@ from io import BytesIO
 from pathlib import Path
 from uuid import uuid4
 from urllib.parse import urlsplit
-import hmac
 import json
 import os
 import threading
@@ -44,7 +43,6 @@ def create_app(recognizer=None):
     app.request_class=MemoryUploadRequest
     app.config['MAX_CONTENT_LENGTH']=20*1024*1024
     production=os.getenv('APP_ENV','development')=='production'
-    access_token=os.getenv('APP_ACCESS_TOKEN','')
     server_ocr=os.getenv('ENABLE_SERVER_OCR','false').lower()=='true'
     origins={origin.strip().rstrip('/') for origin in os.getenv('ALLOWED_ORIGINS','').split(',') if origin.strip()}
     for origin in origins:
@@ -52,8 +50,8 @@ def create_app(recognizer=None):
         if parsed.scheme not in {'https','http'} or not parsed.netloc or parsed.path or parsed.query or parsed.fragment or parsed.username:
             raise ValueError('ALLOWED_ORIGINS must contain exact origins, such as https://your-app.vercel.app')
         if production and parsed.scheme!='https':raise ValueError('Production ALLOWED_ORIGINS must use HTTPS')
-    if production and (len(access_token)<24 or not origins):
-        raise ValueError('Production requires APP_ACCESS_TOKEN (at least 24 characters) and ALLOWED_ORIGINS')
+    if production and not origins:
+        raise ValueError('Production requires ALLOWED_ORIGINS')
     reader=recognizer;reader_lock=threading.Lock();image_slot=threading.BoundedSemaphore(1)
     model_manifest=json.loads((Path(__file__).parent/'device-model.json').read_text())
 
@@ -68,8 +66,6 @@ def create_app(recognizer=None):
             return jsonify(error='This website origin is not allowed to use the API.'),403
         if request.method=='OPTIONS':return '',204
         if request.path=='/api/health':return None
-        if access_token and not hmac.compare_digest(request.headers.get('Authorization','').encode(),f'Bearer {access_token}'.encode()):
-            return jsonify(error='Enter the correct app access password.'),401
 
     @app.after_request
     def response_headers(response):

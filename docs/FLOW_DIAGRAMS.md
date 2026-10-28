@@ -46,10 +46,7 @@ Manual entry still needs a recognizable card grid, but does not require download
 
 ```mermaid
 flowchart TD
-    Open[Open page] --> Gate{Password gate enabled?}
-    Gate -->|Yes| Unlock[Enter password; GET /api/access]
-    Gate -->|No| Photo[Choose or drop photo]
-    Unlock -->|Accepted| Photo
+    Open[Open page] --> Photo[Choose or drop photo]
     Photo --> Rotate[Optionally rotate left or right by 90 degrees]
     Rotate --> Mode{Processing choice}
     Mode -->|Device OCR| Cached{Model cached?}
@@ -67,7 +64,7 @@ flowchart TD
     Recalculate --> Cards
 ```
 
-**Source:** `App()`, `unlock()`, `accept()`, `rotateSource()`, `installModel()`, `scan()`, `editDay()`, `editCard()`, and `update()` in `frontend/src/main.tsx`.
+**Source:** `App()`, `accept()`, `rotateSource()`, `installModel()`, `scan()`, `editDay()`, `editCard()`, and `update()` in `frontend/src/main.tsx`.
 
 The first employee is expanded by default. Status, adjustment, note, and reviewed fields still exist internally, but their controls are absent from the current UI. Clear both time fields to exclude a day. A new photo or rotation clears previous results.
 

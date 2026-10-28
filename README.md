@@ -69,7 +69,7 @@ Include AM/PM when correcting times, especially for overnight or long shifts. If
 | --- | --- |
 | `frontend/src/main.tsx` | UI, scan requests, rotation, source inspector, or editing |
 | `frontend/src/style.css` | Desktop and phone layouts |
-| `frontend/src/api.ts` | API URL and access-password headers |
+| `frontend/src/api.ts` | API URL and request headers |
 | `frontend/src/device-ocr.ts` | Model download, browser cache, worker reuse, or cancellation |
 | `frontend/src/ocr.worker.ts` | Model inference and OCR text decoding |
 | `frontend/src/ocr-policy.ts` | Crop retry and skip rules |
@@ -89,10 +89,10 @@ Use [DEPLOYMENT.md](DEPLOYMENT.md) for the full Vercel and Render setup. The con
 
 | Host | Required settings |
 | --- | --- |
-| Vercel | `VITE_API_BASE_URL=https://YOUR-API.onrender.com`, `VITE_REQUIRE_ACCESS_PASSWORD=true`, `VITE_ENABLE_SERVER_OCR=false` |
-| Render | `APP_ENV=production`, `APP_ACCESS_TOKEN=<private password of at least 24 characters>`, `ALLOWED_ORIGINS=https://YOUR-APP.vercel.app`, `ENABLE_SERVER_OCR=false` |
+| Vercel | `VITE_API_BASE_URL=https://YOUR-API.onrender.com`, `VITE_ENABLE_SERVER_OCR=false` |
+| Render | `APP_ENV=production`, `ALLOWED_ORIGINS=https://YOUR-APP.vercel.app`, `ENABLE_SERVER_OCR=false` |
 
-Vite settings are public build-time values. Backend settings are runtime environment variables; Flask does not automatically load the root `.env` file. Keep the private access password out of frontend variables and Git.
+Vite settings are public build-time values. Backend settings are runtime environment variables; Flask does not automatically load the root `.env` file. The app opens directly without signing in.
 
 ## Checks
 

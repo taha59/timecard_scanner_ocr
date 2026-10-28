@@ -10,7 +10,5 @@ services:
         value: production
       - key: ENABLE_SERVER_OCR
         value: "false"
-      - key: APP_ACCESS_TOKEN
-        generateValue: true
       - key: ALLOWED_ORIGINS
         sync: false

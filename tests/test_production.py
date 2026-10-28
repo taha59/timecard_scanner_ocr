@@ -15,25 +15,32 @@ def production(monkeypatch):
     monkeypatch.setenv('ENABLE_SERVER_OCR','false')
     return create_app().test_client()
 
-def test_cross_origin_auth_and_preflight(production):
-    preflight=production.options('/api/device-result',headers={'Origin':ORIGIN,'Access-Control-Request-Method':'POST','Access-Control-Request-Headers':'authorization,content-type'})
+def test_cross_origin_access_without_password(production):
+    preflight=production.options('/api/device-result',headers={'Origin':ORIGIN,'Access-Control-Request-Method':'POST','Access-Control-Request-Headers':'content-type'})
     assert preflight.status_code==204
     assert preflight.headers['Access-Control-Allow-Origin']==ORIGIN
-    assert 'Authorization' in preflight.headers['Access-Control-Allow-Headers']
-    denied=production.get('/api/device-model',headers={'Origin':ORIGIN})
-    assert denied.status_code==401 and denied.headers['Access-Control-Allow-Origin']==ORIGIN
-    allowed=production.get('/api/device-model',headers={'Origin':ORIGIN,'Authorization':f'Bearer {TOKEN}'})
+    allowed=production.get('/api/device-model',headers={'Origin':ORIGIN})
     assert allowed.status_code==200 and allowed.headers['Cache-Control']=='no-store'
-    blocked=production.post('/api/calculate',json={'cards':[]},headers={'Origin':'https://evil.example','Authorization':f'Bearer {TOKEN}'})
+    assert allowed.headers['Access-Control-Allow-Origin']==ORIGIN
+    blocked=production.post('/api/calculate',json={'cards':[]},headers={'Origin':'https://evil.example'})
     assert blocked.status_code==403 and 'Access-Control-Allow-Origin' not in blocked.headers
-    assert production.get('/api/access',headers={'Authorization':'Bearer wrong'}).status_code==401
-    assert production.get('/api/access',headers={'Authorization':f'Bearer {TOKEN}'}).status_code==200
+    # Old hosting password values and stale client headers no longer gate access.
+    assert production.get('/api/access').status_code==200
+    assert production.get('/api/access',headers={'Authorization':'Bearer wrong'}).status_code==200
     assert production.get('/api/health').status_code==200
 
-def test_production_fails_without_private_configuration(monkeypatch):
+
+def test_production_fails_without_origin_configuration(monkeypatch):
     monkeypatch.setenv('APP_ENV','production');monkeypatch.delenv('APP_ACCESS_TOKEN',raising=False)
     monkeypatch.delenv('ALLOWED_ORIGINS',raising=False)
     with pytest.raises(ValueError,match='Production requires'):create_app()
+
+def test_production_starts_without_password(monkeypatch):
+    monkeypatch.setenv('APP_ENV','production')
+    monkeypatch.setenv('ALLOWED_ORIGINS',ORIGIN)
+    monkeypatch.delenv('APP_ACCESS_TOKEN',raising=False)
+    assert create_app().test_client().get('/api/device-model').status_code==200
+
 
 def test_server_ocr_disabled_and_legacy_storage_removed(production):
     auth={'Authorization':f'Bearer {TOKEN}'}
