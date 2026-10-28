@@ -47,7 +47,7 @@ selects Free and asks for `ALLOWED_ORIGINS`.
 
 Add the three Render variables in the table, then deploy. The app refuses to start
 in production if the origin allowlist is empty.
-Docker downloads and verifies only the recognition weights during the build; it
+Docker downloads and verifies the Medium and Small recognition weights during the build; it
 does not install RapidOCR/ONNX Runtime or load a server OCR model.
 
 The backend needs no database, persistent disk, or session affinity. Free instances
@@ -67,11 +67,13 @@ Wildcards and all-Vercel-domain allowances are intentionally unsupported.
 1. Check `https://YOUR-API.onrender.com/api/health`: `ok: true`, `stateless: true`,
    `server_ocr_enabled: false`, `ocr_loaded: false`.
 2. Open Vercel on iPhone Safari / Android Chrome.
-3. Consent to the ~74 MiB model download (plus ~12 MB runtime before compression).
+3. Keep PP-OCRv6 Medium selected, or select PP-OCRv6 Small for a speed test. Consent to the selected model download (~74 MiB for Medium, ~21 MiB for Small, plus ~12 MB runtime before compression).
 4. Upload, optionally rotate in 90-degree steps, and run a device scan. Verify
    originals against entries. Test cancel and a second scan.
-5. Refresh and confirm **Model ready on this device** without a
-   second model download. Test **Remove downloaded model** and download again.
+5. Refresh and confirm the selected model is ready without a second download.
+   Each model has its own cache key; removing one preserves the other. The
+   selection defaults to Medium on page reload. Compare the same photo with both
+   models using Scan timing; the timing summary names the model used.
 6. Add to Home Screen via Safari Share or Chrome menu. The app is installable,
    but still needs the backend; it is not fully offline.
 

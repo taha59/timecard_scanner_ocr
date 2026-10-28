@@ -54,6 +54,11 @@ def create_app(recognizer=None):
         raise ValueError('Production requires ALLOWED_ORIGINS')
     reader=recognizer;reader_lock=threading.Lock();image_slot=threading.BoundedSemaphore(1)
     model_manifest=json.loads((Path(__file__).parent/'device-model.json').read_text())
+    small_manifest=json.loads((Path(__file__).parent/'device-model-small.json').read_text())
+    def selected_model():
+        variant=request.args.get('variant','medium')
+        if variant not in {'medium','small'}:raise ValueError('Choose medium or small OCR')
+        return variant,small_manifest if variant=='small' else model_manifest
 
     @app.before_request
     def protect_api():
@@ -181,12 +186,15 @@ def create_app(recognizer=None):
         return jsonify(scan_id=uuid4().hex,cards=calculate_cards(cards,punch_only=True),manual=manual,message='Manual mode: no handwriting was recognized. Enter both times for each worked day.' if manual else 'All OCR values require review. Check the times against the source photo.')
 
     @app.get('/api/device-model')
-    def device_model():return jsonify(**model_manifest,url='/api/device-model/weights')
+    def device_model():
+        variant,manifest=selected_model()
+        return jsonify(**manifest,url='/api/device-model/weights'+('?variant=small' if variant=='small' else ''))
 
     @app.get('/api/device-model/weights')
     def device_weights():
+        _,manifest=selected_model()
         root=Path(os.getenv('RAPIDOCR_MODEL_DIR',str(Path(__file__).parents[1]/'model_cache'/'rapidocr')))
-        path=root/model_manifest['filename']
+        path=root/manifest['filename']
         if not path.is_file():return jsonify(error='Device model is missing on the server. Run scripts/download_device_model.py.'),503
         return send_file(path,mimetype='application/octet-stream',conditional=True)
 

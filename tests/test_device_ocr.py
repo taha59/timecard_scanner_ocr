@@ -43,6 +43,32 @@ def test_device_model_and_install_assets(client):
     assert client.get('/sw.js').status_code==200
 
 
+def test_small_model_is_opt_in_and_has_its_own_manifest(client):
+    medium=client.get('/api/device-model').json
+    assert client.get('/api/device-model?variant=medium').json==medium
+    small=client.get('/api/device-model?variant=small').json
+    assert medium['version']=='ppocrv6-rec-medium-v1'
+    assert small['version']=='ppocrv6-rec-small-v1'
+    assert small['filename']=='PP-OCRv6_rec_small.onnx'
+    assert small['bytes']==21_234_383<medium['bytes']
+    assert small['sha256']=='6f327246b50388f3c176ae304bd95767ea6dc0c9ae92153ef8cbe210b3c14884'
+    assert small['url']=='/api/device-model/weights?variant=small'
+    assert small['characters']==medium['characters']
+    for path in ['/api/device-model','/api/device-model/weights']:
+        assert client.get(path+'?variant=unknown').status_code==400
+        assert client.get(path+'?variant=../../secret').status_code==400
+    assert create_app().test_client().get('/api/health').json['ocr_loaded'] is False
+
+
+def test_weight_route_uses_selected_model_file(client,monkeypatch,tmp_path):
+    monkeypatch.setenv('RAPIDOCR_MODEL_DIR',str(tmp_path))
+    (tmp_path/'PP-OCRv6_rec_medium.onnx').write_bytes(b'medium weights')
+    assert client.get('/api/device-model/weights?variant=small').status_code==503
+    (tmp_path/'PP-OCRv6_rec_small.onnx').write_bytes(b'small weights')
+    assert client.get('/api/device-model/weights').data==b'medium weights'
+    assert client.get('/api/device-model/weights?variant=small').data==b'small weights'
+
+
 def test_device_noisy_blank_rows_have_prepared_punches(client):
     job=prepare(client).json
     readings={task['id']:{'text':'10:00','confidence':.5} for task in job['tasks']}

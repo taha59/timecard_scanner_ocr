@@ -114,7 +114,8 @@ Cached weights and an already initialized model are different things. Refreshing
 
 ```mermaid
 flowchart TD
-    Manifest[GET /api/device-model] --> Present{Matching version and checksum cached?}
+    Choose[Select Medium or optional Small test] --> Manifest[GET selected model manifest]
+    Manifest --> Present{Matching version and checksum cached?}
     Present -->|No| Agree[User agrees to download]
     Agree --> Fetch[GET /api/device-model/weights]
     Fetch --> Verify{Exact size and SHA-256 match?}
@@ -139,7 +140,7 @@ flowchart TD
 
 **Source:** `modelPresent()`, `downloadModel()`, `recognizeAttempt()`, `recognizeOnDevice()`, `releaseDeviceModel()` in `frontend/src/device-ocr.ts`; `ocrThreadCount()` in `ocr-threads.ts`; session initialization in `ocr.worker.ts`.
 
-The diagram shows the default thread setting. `VITE_OCR_THREADS` can explicitly request one, two, or four; a request exceeding reported cores uses one. Missing isolation/shared memory also selects one. The initialization watchdog is 30 seconds per attempt. Model removal deletes the cache and terminates the worker; page exit and cancellation terminate the worker without deleting verified cached weights.
+The diagram shows the default thread setting. `VITE_OCR_THREADS` can explicitly request one, two, or four; a request exceeding reported cores uses one. Missing isolation/shared memory also selects one. The initialization watchdog is 30 seconds per attempt. Medium is the default; Small uses `?variant=small` on the manifest and weight endpoints. Models have separate cache keys. Switching models terminates the worker; removing a selected model deletes only its cached weights. Page exit and cancellation terminate the worker without deleting verified cached weights.
 
 ## 5. Core feature: finding the seven-day card grid
 

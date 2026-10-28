@@ -58,6 +58,7 @@ See [Flow diagrams](docs/FLOW_DIAGRAMS.md) for the architecture and step-by-step
 - **Automatic totals:** Complete, valid time pairs count toward the total. Empty rows contribute nothing; incomplete or invalid rows are excluded and flagged. Notes and adjustments are not included.
 - **Written-total comparison:** The handwritten total is a cross-check; it never changes calculated hours.
 - **Manual entry:** **Extract crops for manual entry** provides the images without running OCR.
+- **Model comparison:** Medium is the default. Select PP-OCRv6 Small to test faster recognition; both models are cached separately. Small can miss more handwriting.
 - **Progress and timing:** A progress bar shows recognition progress. **Scan timing** shows processing durations and the actual thread count.
 - **Cancellation:** Users can stop a scan and retry.
 
@@ -78,7 +79,7 @@ Include AM/PM when correcting times, especially for overnight or long shifts. If
 | `backend/device_ocr.py` | Preparing crop tasks and combining returned readings |
 | `backend/ocr_common.py` | Cleaning messy OCR strings into time candidates |
 | `backend/calculator.py` | Time validation, day hours, totals, or warnings |
-| `backend/device-model.json` | Model filename, checksum, size, and vocabulary |
+| `backend/device-model*.json` | Medium/Small model filenames, checksums, sizes, and vocabulary |
 | `tests/` and `scripts/test_*.cjs` | Backend and frontend-logic checks |
 
 The app uses **punch-only calculation mode**. The calculator also contains older status/adjustment behavior, so app calls explicitly pass `punch_only=True`.

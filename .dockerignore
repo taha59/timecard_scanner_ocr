@@ -4,5 +4,6 @@
 !backend/
 !backend/*.py
 !backend/device-model.json
+!backend/device-model-small.json
 !scripts/
 !scripts/download_device_model.py

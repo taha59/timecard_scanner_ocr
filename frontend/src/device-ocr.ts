@@ -7,7 +7,7 @@ export const MODEL_CACHE='timecard-device-model-v1';
 const modelKey=(m:ModelManifest)=>`/device-model-cache/${m.version}/${m.sha256}`;
 export function deviceSupported(){return window.isSecureContext&&'caches' in window&&'Worker' in window&&'WebAssembly' in window&&'OffscreenCanvas' in window;}
 export async function modelPresent(m:ModelManifest){return deviceSupported()&&Boolean(await (await caches.open(MODEL_CACHE)).match(modelKey(m)));}
-export async function removeModel(){releaseDeviceModel();await caches.delete(MODEL_CACHE);}
+export async function removeModel(m?:ModelManifest){releaseDeviceModel();if(m)await (await caches.open(MODEL_CACHE)).delete(modelKey(m));else await caches.delete(MODEL_CACHE);}
 export async function downloadModel(m:ModelManifest,signal:AbortSignal,progress:(text:string)=>void){
  const cache=await caches.open(MODEL_CACHE);
  const response=await apiFetch(m.url,{signal,cache:'no-store'});

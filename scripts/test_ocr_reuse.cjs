@@ -23,6 +23,13 @@ const m={version:'test',sha256:'hash'},tasks=[{id:'a',image:'data:test'}],tick=(
  const failed=instances[2];failed.onerror();await tick();
  assert.equal(failed.terminated,true);assert.equal(instances.length,4);assert.equal(instances[3].sent[0].forceSingleThread,true);
  instances[3].complete();await startup;
+ const small={version:'ppocrv6-rec-small-v1',sha256:'small-hash'};
+ const switchToSmall=w.device.recognizeOnDevice(small,tasks,new AbortController().signal,()=>{});await tick();
+ assert.equal(instances[3].terminated,true);assert.equal(instances.length,5);
+ assert.ok(instances[4].sent[0].model instanceof ArrayBuffer);instances[4].complete();await switchToSmall;
+ const switchBack=w.device.recognizeOnDevice(m,tasks,new AbortController().signal,()=>{});await tick();
+ assert.equal(instances[4].terminated,true);assert.equal(instances.length,6);
+ instances[5].complete();await switchBack;
  w.device.releaseDeviceModel();w.close();
- console.log('PASS: repeat scans reuse one model without re-reading weights; cancel/pagehide terminate it, retry creates a fresh worker, and initialization failure retries once with one thread.');
+ console.log('PASS: repeat scans reuse one model; switching model reloads the correct weights; cancel/pagehide terminate it and startup failure retries once with one thread.');
 })().catch(e=>{console.error(e);w.device.releaseDeviceModel();w.close();process.exitCode=1;});

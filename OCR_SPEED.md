@@ -188,3 +188,57 @@ verify that time fields and recovery metadata are unchanged; these are plumbing
 checks, not handwriting accuracy measurements. No synthetic timecards are used.
 The model, four-thread default, time-crop geometry and fallback rules are unchanged.
 Health identifies the new backend with `scan_profile: "punch-only-v2"`.
+
+
+## Optional PP-OCRv6 Small comparison — October 28, 2026
+
+Medium remains the default. The OCR model selector offers PP-OCRv6 Small as an
+explicit speed test. Both are PaddleOCR PP-OCRv6 recognizers from RapidAI's
+[pinned v3.10.0 ONNX distribution](https://github.com/RapidAI/RapidOCR/blob/main/python/rapidocr/default_models.yaml).
+Small is 21,234,383 bytes, versus Medium's 76,629,984 bytes. Its SHA-256 is
+`6f327246b50388f3c176ae304bd95767ea6dc0c9ae92153ef8cbe210b3c14884`.
+The vocabulary extracted from Small's ONNX metadata is identical to Medium's.
+
+Local Chromium/WASM tests use four threads, real photos, the actual browser
+worker, identical prepared tasks, and the same Flask result parser. No native
+OCR, synthetic timecards or remote photo uploads are used. Fresh browser contexts
+hold each model under a separate version/checksum cache key. Each measured scan
+starts a fresh worker; download and startup are excluded from Reading below.
+A repeat timing pass ran without the Python test suite competing for CPU.
+
+| Photo | Medium reading | Small reading | Reduction |
+| --- | ---: | ---: | ---: |
+| Five cards | 16.63 s | 4.25 s | 74.4% |
+| Seven cards | 26.12 s | 6.98 s | 73.3% |
+
+Five-card timing is one reverse-order pass (Small then Medium). Seven-card values
+average two runs each, ordered Small, Medium, Medium, Small. Medium read 311/399
+crops, skipping 88; Small read 325/399, skipping 74. Retry policy is unchanged;
+different recognition text/quality naturally changes which fallbacks run.
+These desktop times do not predict iPhone or hosted end-to-end performance.
+Backend preparation and results costs remain.
+
+Accuracy checks use the existing manual transcriptions for two real five-card
+photos. A correct field must match the transcribed hour/minute on a 12-hour clock;
+colon/dot separators are normalized. AM/PM correctness, names, written totals,
+seven-card accuracy, and payroll-total accuracy are not scored by this metric.
+
+| Photo | Medium correct fields | Small correct fields | Missing fields: Medium / Small |
+| --- | ---: | ---: | ---: |
+| Latest five-card photo | 47/48 | 44/48 | 0 / 2 |
+| Original five-card photo | 41/44 | 40/44 | 1 / 2 |
+| Combined | 88/92 | 84/92 | 1 / 4 |
+
+Neither model populated extra time fields on the annotated off/blank rows in
+these two photos. Small also dropped AM/PM suffixes in several comparisons.
+The measured tradeoff supports offering Small for testing, not claiming equal
+accuracy or replacing Medium as the default. Cropping, parsing, retry thresholds,
+review images, totals logic, and the four-thread policy are unchanged.
+
+The selector requests `/api/device-model?variant=small`; weights are served by
+`/api/device-model/weights?variant=small`. Omitting the variant keeps Medium.
+The backend build installs and checksum-verifies both public weight files;
+inference still runs only in the browser. Each model requires its own download
+consent. Switching models releases the loaded worker and loads the selected
+cached bytes. Removing the selected model preserves the other cache entry.
+The timing summary includes the model name so phone comparisons remain clear.

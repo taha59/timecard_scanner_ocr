@@ -7,11 +7,12 @@ import tempfile
 from urllib.request import urlopen,Request
 
 ROOT=Path(__file__).resolve().parents[1]
-URL='https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.10.0/onnx/PP-OCRv6/rec/PP-OCRv6_rec_medium.onnx'
+URL_ROOT='https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.10.0/onnx/PP-OCRv6/rec/'
 
 
-def download():
-    manifest=json.loads((ROOT/'backend'/'device-model.json').read_text())
+def download(variant='medium'):
+    if variant not in {'medium','small'}:raise ValueError('Unknown model variant')
+    manifest=json.loads((ROOT/'backend'/('device-model.json' if variant=='medium' else 'device-model-small.json')).read_text())
     root=Path(os.getenv('RAPIDOCR_MODEL_DIR',str(ROOT/'model_cache'/'rapidocr')))
     root.mkdir(parents=True,exist_ok=True)
     target=root/manifest['filename']
@@ -23,7 +24,7 @@ def download():
     try:
         with tempfile.NamedTemporaryFile(dir=root,delete=False) as output:
             temporary=Path(output.name)
-            with urlopen(Request(URL,headers={'User-Agent':'Timecard-model-installer/1.0'}),timeout=120) as response:
+            with urlopen(Request(URL_ROOT+manifest['filename'],headers={'User-Agent':'Timecard-model-installer/1.0'}),timeout=120) as response:
                 while chunk:=response.read(1024*1024):output.write(chunk)
         if not valid(temporary):raise RuntimeError('Model checksum or size mismatch; refusing to install.')
         temporary.replace(target)
@@ -31,4 +32,5 @@ def download():
     finally:
         if temporary is not None:temporary.unlink(missing_ok=True)
 
-if __name__=='__main__':download()
+if __name__=='__main__':
+    for variant in ['medium','small']:download(variant)

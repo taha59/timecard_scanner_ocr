@@ -1,0 +1,42 @@
+const assert=require('node:assert/strict');
+const {JSDOM}=require('../frontend/node_modules/jsdom');
+const {buildSync}=require('../frontend/node_modules/esbuild');
+const dom=new JSDOM('<div id="root"></div>',{url:'http://localhost',runScripts:'outside-only'}),w=dom.window;
+global.window=w;global.document=w.document;global.HTMLElement=w.HTMLElement;global.MutationObserver=w.MutationObserver;
+w.AbortController=AbortController;w.Headers=Headers;w.isSecureContext=true;w.WebAssembly=WebAssembly;w.OffscreenCanvas=class{};w.Worker=class{};
+const requests=[],deleted=[],medium={version:'ppocrv6-rec-medium-v1',sha256:'medium-hash',bytes:76629984},small={version:'ppocrv6-rec-small-v1',sha256:'small-hash',bytes:21234383};
+const saved=new Set(['/device-model-cache/ppocrv6-rec-medium-v1/medium-hash','/device-model-cache/ppocrv6-rec-small-v1/small-hash']);
+w.caches={open:async()=>({match:async key=>saved.has(key)?{}:undefined,delete:async key=>{deleted.push(key);return saved.delete(key);}})};
+w.fetch=url=>new Promise(resolve=>requests.push({url,resolve}));
+w.eval(buildSync({entryPoints:['frontend/src/main.tsx'],bundle:true,write:false,format:'iife',loader:{'.css':'empty'},define:{'process.env.NODE_ENV':'"test"','import.meta.env':'{}'},jsx:'automatic',logLevel:'silent'}).outputFiles[0].text);
+const {within,waitFor}=require('../frontend/node_modules/@testing-library/dom');
+const user=require('../frontend/node_modules/@testing-library/user-event').default.setup({document:w.document});
+const screen=within(w.document.body);
+(async()=>{
+ await waitFor(()=>assert.equal(requests.length,1));
+ assert.equal(requests[0].url,'/api/device-model');
+ requests[0].resolve({ok:true,json:async()=>medium});
+ await waitFor(()=>screen.getByText('PaddleOCR PP-OCRv6 Medium ready on this device'));
+ await user.selectOptions(screen.getByLabelText('OCR model'),'small');
+ await waitFor(()=>assert.equal(requests.length,2));
+ assert.equal(requests[1].url,'/api/device-model?variant=small');
+ assert.equal(screen.queryByRole('button',{name:'Remove downloaded model'}),null);
+ requests[1].resolve({ok:true,json:async()=>small});
+ await waitFor(()=>screen.getByText('PaddleOCR PP-OCRv6 Small ready on this device'));
+ await user.click(screen.getByRole('button',{name:'Remove downloaded model'}));
+ await waitFor(()=>screen.getByRole('button',{name:'Agree & download model'}));
+ assert.deepEqual(deleted,['/device-model-cache/ppocrv6-rec-small-v1/small-hash']);
+ assert.ok(saved.has('/device-model-cache/ppocrv6-rec-medium-v1/medium-hash'));
+ assert.ok(screen.getByText(/download PaddleOCR PP-OCRv6 Small \(approximately 21 MB/));
+ await user.selectOptions(screen.getByLabelText('OCR model'),'medium');
+ await waitFor(()=>assert.equal(requests.length,3));requests[2].resolve({ok:true,json:async()=>medium});
+ await waitFor(()=>screen.getByText('PaddleOCR PP-OCRv6 Medium ready on this device'));
+ // During a staggered deployment an old API might ignore ?variant=small.
+ // Never label its Medium weights as Small or permit a misleading test scan.
+ await user.selectOptions(screen.getByLabelText('OCR model'),'small');
+ await waitFor(()=>assert.equal(requests.length,4));requests[3].resolve({ok:true,json:async()=>medium});
+ await waitFor(()=>screen.getByText('Model information is unavailable. Check the server connection, then refresh.'));
+ assert.equal(screen.queryByText('PaddleOCR PP-OCRv6 Small ready on this device'),null);
+ console.log('PASS: Medium remains default, Small is opt-in, cached readiness follows model selection, and removing Small preserves Medium.');
+ dom.window.close();
+})().catch(e=>{console.error(e);dom.window.close();process.exitCode=1;});
