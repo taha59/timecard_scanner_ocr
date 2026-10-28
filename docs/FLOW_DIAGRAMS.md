@@ -156,13 +156,13 @@ flowchart TD
     Boxes -->|Yes| Grid[Fit strip edge and seven day boundaries]
     Grid --> Dedupe[Deduplicate proposals; order cards left to right]
     Dedupe --> Normalize[Remap each card to 310 by 785 pixels]
-    Normalize --> Crops[Make day, IN/OUT, name, written-total, and note crops]
+    Normalize --> Crops[Make day, IN/OUT, name, and written-total crops]
     Crops --> Tasks[Collect browser OCR tasks]
 ```
 
 **Source:** the `/api/scan` preprocessing in `backend/app.py`; `bar_geometry()`, `detect_cards()`, `clean_ink()`, and `punch_bands()` in `backend/extractor.py`.
 
-Normal punch cells start at normalized x=198. The label-edge retry starts at x=190 when boundary ink is detected. The displayed day crop starts at x=182 so the user can inspect handwriting beside the printed labels. Notes are still extracted internally even though app totals ignore them.
+Normal punch cells start at normalized x=198. The label-edge retry starts at x=190 when boundary ink is detected. The displayed day crop starts at x=182 so the user can inspect handwriting beside the printed labels. App scans skip note recognition and do not encode separate note/punch previews; full-card and day images remain available.
 
 ## 6. Core feature: crop retries and messy text parsing
 

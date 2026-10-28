@@ -155,3 +155,36 @@ Results checking also separates request wait, download, JSON parsing, and backen
 layout reconstruction, entry/source-image reconstruction, and response building.
 These are elapsed durations including scheduling delays. The instrumentation does
 not change model weights, input pixels, recognition rules, threads or retries.
+
+
+## Skip unused note recognition and hidden previews — October 28, 2026
+
+The latest phone scan took 88.17 seconds: preparation 23.21, startup 0.65,
+reading 52.45, and results 11.71. Inference accounted for 50.82 seconds of
+reading; image decoding was only 0.86 seconds. Results reconstruction took
+9.81 seconds on the backend.
+
+App scans now skip note recognition. Notes/adjustments are absent from the UI
+and do not contribute to punch-only totals. The API also stops PNG-encoding
+separate note and cleaned-punch previews that the UI never displays. It still
+returns the exact same full-card and day images. Legacy extractor callers keep
+notes and auxiliary images by default. Older browser tabs can submit extra note
+readings safely; the result endpoint ignores those unused readings.
+
+Local measurements on real photos (preparation medians of three runs; results
+one replay per configuration with empty readings):
+
+| Photo | OCR tasks before → after | Results response before → after | Results replay before → after |
+| --- | ---: | ---: | ---: |
+| Latest five cards | 309 → 274 | 3.85 → 2.84 MB | 0.279 → 0.227 s |
+| Original five cards | 293 → 258 | 3.85 → 2.85 MB | 0.272 → 0.224 s |
+| One card | 59 → 52 | 0.73 → 0.54 MB | 0.054 → 0.044 s |
+| Seven cards | 448 → 399 | 5.55 → 4.11 MB | 0.450 → 0.361 s |
+
+These tests do not run the OCR model or predict phone inference time. They check
+that retained task IDs, decoded RGB pixels, dependencies, normalized layouts,
+and visible result images are unchanged. Separate fixed-reading replay tests
+verify that time fields and recovery metadata are unchanged; these are plumbing
+checks, not handwriting accuracy measurements. No synthetic timecards are used.
+The model, four-thread default, time-crop geometry and fallback rules are unchanged.
+Health identifies the new backend with `scan_profile: "punch-only-v2"`.

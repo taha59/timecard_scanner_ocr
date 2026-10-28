@@ -116,7 +116,7 @@ def create_app(recognizer=None):
         from .device_ocr import DEVICE_PNG_COMPRESSION
         return jsonify(ok=True,stateless=True,server_ocr_enabled=server_ocr,ocr_loaded=reader is not None,
                        ocr_engine=type(reader).__name__ if reader is not None else None,
-                       device_crop_png_compression=DEVICE_PNG_COMPRESSION)
+                       device_crop_png_compression=DEVICE_PNG_COMPRESSION,scan_profile='punch-only-v2')
 
     @app.get('/api/access')
     def access():return jsonify(ok=True)
@@ -162,7 +162,7 @@ def create_app(recognizer=None):
             if len(layouts)>20:raise ValueError('Use at most 20 cards per photo')
             collector=DeviceRecognizer()
             stage_started=perf_counter()
-            extract(None,collector,layouts=layouts,include_images=False)
+            extract(None,collector,layouts=layouts,include_images=False,include_notes=False)
             g.stage_timings.append(('crops',(perf_counter()-stage_started)*1000))
             stage_started=perf_counter()
             response=jsonify(layouts=pack_layouts(layouts),tasks=list(collector.tasks.values()))
@@ -177,7 +177,7 @@ def create_app(recognizer=None):
                         app.logger.exception('Local OCR model could not load')
                         return jsonify(error='The optional server OCR reader is unavailable. Choose device OCR or manual entry.'),503
                 active=reader
-        cards=extract(image,active)
+        cards=extract(image,active,include_notes=False,include_auxiliary_images=False)
         return jsonify(scan_id=uuid4().hex,cards=calculate_cards(cards,punch_only=True),manual=manual,message='Manual mode: no handwriting was recognized. Enter both times for each worked day.' if manual else 'All OCR values require review. Check the times against the source photo.')
 
     @app.get('/api/device-model')
@@ -212,7 +212,7 @@ def create_app(recognizer=None):
             score=value.get('confidence')
             if isinstance(score,bool) or not isinstance(score,(int,float)) or not 0<=score<=1:raise ValueError('Invalid device confidence')
         stage_started=perf_counter()
-        cards=extract(None,DeviceRecognizer(readings),layouts=layouts)
+        cards=extract(None,DeviceRecognizer(readings),layouts=layouts,include_notes=False,include_auxiliary_images=False)
         g.stage_timings.append(('reconstruct',(perf_counter()-stage_started)*1000))
         stage_started=perf_counter()
         response=jsonify(scan_id=uuid4().hex,cards=calculate_cards(cards,punch_only=True),manual=False,message='Device OCR complete. Review every entry. Photos were processed in server memory only; no photos or scans were saved.')

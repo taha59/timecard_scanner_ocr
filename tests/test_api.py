@@ -67,7 +67,7 @@ def test_scan_applies_clockwise_quarter_turn_before_extraction(client,monkeypatc
     pixels[4:,:6]=(0,0,255);pixels[4:,6:]=(255,255,0)
     data=BytesIO();Image.fromarray(pixels).save(data,format='PNG');data.seek(0)
     captured=[]
-    monkeypatch.setattr('backend.app.extract',lambda image,reader:captured.append(image.copy()) or [])
+    monkeypatch.setattr('backend.app.extract',lambda image,reader,**options:captured.append(image.copy()) or [])
     response=client.post('/api/scan',data={'image':(data,'corners.png'),'rotation':str(rotation),'manual':'true'})
     assert response.status_code==200
     expected=np.rot90(pixels,k=-(rotation//90))[:,:,::-1]
@@ -90,7 +90,7 @@ def test_user_rotation_is_applied_after_camera_exif_orientation(client,monkeypat
     photo=Image.fromarray(pixels);exif=photo.getexif();exif[274]=6
     data=BytesIO();photo.save(data,format='PNG',exif=exif);data.seek(0)
     captured=[]
-    monkeypatch.setattr('backend.app.extract',lambda image,reader:captured.append(image.copy()) or [])
+    monkeypatch.setattr('backend.app.extract',lambda image,reader,**options:captured.append(image.copy()) or [])
     response=client.post('/api/scan',data={'image':(data,'camera.png'),'rotation':'270','manual':'true'})
     assert response.status_code==200
     np.testing.assert_array_equal(captured[0],pixels[:,:,::-1])

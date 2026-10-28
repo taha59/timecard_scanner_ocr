@@ -198,7 +198,8 @@ def png_data(image,compress_level=6):
     return 'data:image/png;base64,'+base64.b64encode(buf.getvalue()).decode()
 
 
-def extract(image,recognizer,layouts=None,include_images=True):
+def extract(image,recognizer,layouts=None,include_images=True,include_notes=True,include_auxiliary_images=True):
+    """Keep legacy notes/previews optional for the app's punch-only review UI."""
     cards=[]
     if layouts is None:layouts=detect_cards(image)
     if hasattr(recognizer,'prepare'):
@@ -225,9 +226,10 @@ def extract(image,recognizer,layouts=None,include_images=True):
                     else [recognizer.read(p,'time') for p in punches]) if status=='worked' else []
             if status=='worked' and not any(value.text for value in values):
                 status='unknown'
-            note=recognizer.read(Image.fromarray(cv2.cvtColor(layout.notes[di],cv2.COLOR_BGR2RGB)),'text')
+            note_text=(recognizer.read(Image.fromarray(cv2.cvtColor(layout.notes[di],cv2.COLOR_BGR2RGB)),'text').text
+                       if include_notes else '')
             import re
-            adjustments=re.findall(r'\+\s*(\d+(?:\.\d+)?)',note.text)
+            adjustments=re.findall(r'\+\s*(\d+(?:\.\d+)?)',note_text)
             row={'label':f'Day {di+1}','status':status,'in':values[0].text if values else '', 'out':values[1].text if values else '',
                  'in_confidence':values[0].confidence if values else None,'out_confidence':values[1].confidence if values else None,
                  'raw_in':values[0].raw_text if values else '', 'raw_out':values[1].raw_text if values else '',
@@ -237,11 +239,11 @@ def extract(image,recognizer,layouts=None,include_images=True):
                  'ocr_recovered':any(v.recovered for v in values),
                  'status_confidence':status_read.confidence if status_read else .5,'status_guessed':True,'ink_fraction':fraction,
                  'ink_class':guessed,'raw_status':status_read.text if status_read else '', 'source':'ocr','reviewed':False,
-                 'note':note.text,'adjustment_hours':adjustments[0] if len(adjustments)==1 else '0',
+                 'note':note_text,'adjustment_hours':adjustments[0] if len(adjustments)==1 else '0',
                  'adjustment_confirmed':False, # Every notes area must be inspected, including failed OCR.
                  'image':png_data(layout.image[round(120+di*600/7)-layout.cell_padding:round(120+(di+1)*600/7)+layout.cell_padding,182:306]) if include_images else '',
-                 'note_image':png_data(layout.notes[di]) if include_images else '',
-                 'punch_images':[png_data(p) for p in punches] if include_images else []}
+                 'note_image':png_data(layout.notes[di]) if include_images and include_auxiliary_images else '',
+                 'punch_images':[png_data(p) for p in punches] if include_images and include_auxiliary_images else []}
             card['days'].append(row)
         cards.append(card)
     return cards
