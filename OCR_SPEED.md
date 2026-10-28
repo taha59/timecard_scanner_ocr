@@ -100,3 +100,44 @@ Live verification after rollout: five synthetic cards completed in 26.70s
 (9.18s crop preparation, 0.68s model startup, 14.56s recognition on two threads).
 113 of 183 synthetic crop tasks were inferred; 70 fallbacks were avoided. This
 synthetic case is separate from the real-photo before/after benchmark above.
+
+## Faster server crop preparation — October 28, 2026
+
+The phone diagnostics identified backend work as the preparation bottleneck:
+37.84 seconds server processing, including 25.49 seconds crop creation; response
+download was 0.44 seconds. This release targets that backend work.
+
+- Recognition task PNGs use compression level 1 (lossless) rather than the normal
+  level 6. Their decoded RGB pixels, dimensions, task IDs and retry dependencies
+  are unchanged.
+- The collecting device scan does not encode review images that are discarded.
+  Result reconstruction still supplies all visible source images.
+- A collecting DeviceRecognizer reuses punch preparation within the request.
+  Returned readings are not cached across requests and the server loads no OCR.
+- Full-card PNGs and final review-image encoding retain level 6. The normalized
+  layouts posted back to the API and later result/edit payloads are unchanged.
+
+Local Flask-route medians, three repetitions per configuration, real photos:
+
+| Cards / photo | Previous preparation | Optimized preparation | Previous crop creation | Optimized crop creation |
+| --- | ---: | ---: | ---: | ---: |
+| Five / latest group | 0.867 s | 0.545 s | 0.608 s | 0.279 s |
+| Five / original group | 0.763 s | 0.463 s | 0.543 s | 0.238 s |
+| One / close-up | 0.206 s | 0.149 s | 0.111 s | 0.051 s |
+| Seven / group | 1.351 s | 0.853 s | 0.926 s | 0.414 s |
+
+Multi-card preparation was about 37–39% faster locally; crop creation about
+54–56% faster. These are preparation measurements, not fresh phone or Render
+speed measurements. No native/browser recognition model was run in this test.
+Every task image was decoded and checked for identical RGB pixels, dimensions,
+ID and dependency metadata against the previous release. Normalized layouts
+were byte-for-byte identical. Empty-reading replay also returned identical
+cards, verifying plumbing rather than handwriting accuracy.
+
+The tradeoff is a larger initial response: seven cards increased from 11.30 to
+16.34 MB before HTTP compression (gzip: 8.46 to 12.07 MB). Later result responses
+remained 5.55 MB before compression. The phone's next scan should be measured
+with the existing diagnostics to check actual server savings and download cost.
+The OCR model, browser inference code, recognition thresholds, crop geometry,
+and source images shown to users are unchanged. Health reports
+`device_crop_png_compression: 1` to identify the updated backend.

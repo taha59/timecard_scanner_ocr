@@ -112,8 +112,11 @@ def create_app(recognizer=None):
         return jsonify(error='Processing failed. Check the backend logs; no payroll result was produced.'),500
 
     @app.get('/api/health')
-    def health():return jsonify(ok=True,stateless=True,server_ocr_enabled=server_ocr,ocr_loaded=reader is not None,
-                               ocr_engine=type(reader).__name__ if reader is not None else None)
+    def health():
+        from .device_ocr import DEVICE_PNG_COMPRESSION
+        return jsonify(ok=True,stateless=True,server_ocr_enabled=server_ocr,ocr_loaded=reader is not None,
+                       ocr_engine=type(reader).__name__ if reader is not None else None,
+                       device_crop_png_compression=DEVICE_PNG_COMPRESSION)
 
     @app.get('/api/access')
     def access():return jsonify(ok=True)
@@ -159,7 +162,7 @@ def create_app(recognizer=None):
             if len(layouts)>20:raise ValueError('Use at most 20 cards per photo')
             collector=DeviceRecognizer()
             stage_started=perf_counter()
-            extract(None,collector,layouts=layouts)
+            extract(None,collector,layouts=layouts,include_images=False)
             g.stage_timings.append(('crops',(perf_counter()-stage_started)*1000))
             stage_started=perf_counter()
             response=jsonify(layouts=pack_layouts(layouts),tasks=list(collector.tasks.values()))

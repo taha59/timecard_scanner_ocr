@@ -8,13 +8,19 @@ from .ocr_common import clock_text,tentative_clock_text
 from .extractor import png_data, clean_ink, tight_white, photo_punch_crops, punch_crops, focused_punch_crops, label_edge_punch_crops
 from .rapid_recognizer import choose_reading
 
+# Task images prioritize fast, lossless encoding. Full cards and review images
+# keep the normal compression level so later request payloads do not grow.
+DEVICE_PNG_COMPRESSION=1
+
 class DeviceRecognizer:
     def __init__(self, readings=None):
         self.tasks={}
         self.readings=readings
+        self._prepared_punches={}
 
     def prepare(self,layouts):
         if self.readings is None:
+            self._prepared_punches.clear()
             # Even a visually blank row can produce text on the device. Record
             # both punches up front so replay never needs an unprepared task.
             for layout in layouts:
@@ -30,7 +36,7 @@ class DeviceRecognizer:
         image=image.convert('RGB')
         key=self._key(image,mode)
         if self.readings is None:
-            if key not in self.tasks:self.tasks[key]={'id':key,'image':png_data(image),'required':required}
+            if key not in self.tasks:self.tasks[key]={'id':key,'image':png_data(image,compress_level=DEVICE_PNG_COMPRESSION),'required':required}
             elif required:self.tasks[key]['required']=True
             return Reading('',0)
         value=self.readings.get(key)
@@ -42,6 +48,9 @@ class DeviceRecognizer:
         return self.read(tight_white(ink))
 
     def read_punches(self,layout,day,punches):
+        cache_key=(id(layout),day)
+        if self.readings is None and cache_key in self._prepared_punches:
+            return self._prepared_punches[cache_key]
         ink=clean_ink(layout.cells[day])
         originals=photo_punch_crops(layout.cells[day],ink)
         focused=focused_punch_crops(layout.cells[day],ink)
@@ -122,6 +131,7 @@ class DeviceRecognizer:
         if not any(value.text and not compact for value,compact in zip(result,compact_repairs)):
             for index,compact in enumerate(compact_repairs):
                 if compact:result[index]=Reading('',0,result[index].raw_text,result[index].alternatives)
+        if self.readings is None:self._prepared_punches[cache_key]=result
         return result
 
 

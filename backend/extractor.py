@@ -191,14 +191,14 @@ def photo_punch_crops(cell,ink):
     return result
 
 
-def png_data(image):
+def png_data(image,compress_level=6):
     import base64,io
     if not isinstance(image,Image.Image): image=Image.fromarray(cv2.cvtColor(image,cv2.COLOR_BGR2RGB))
-    buf=io.BytesIO(); image.save(buf,format='PNG')
+    buf=io.BytesIO(); image.save(buf,format='PNG',compress_level=compress_level)
     return 'data:image/png;base64,'+base64.b64encode(buf.getvalue()).decode()
 
 
-def extract(image,recognizer,layouts=None):
+def extract(image,recognizer,layouts=None,include_images=True):
     cards=[]
     if layouts is None:layouts=detect_cards(image)
     if hasattr(recognizer,'prepare'):
@@ -206,7 +206,7 @@ def extract(image,recognizer,layouts=None):
     for ci,layout in enumerate(layouts):
         name=recognizer.read(Image.fromarray(cv2.cvtColor(layout.name,cv2.COLOR_BGR2RGB)),'text')
         written=recognizer.read(Image.fromarray(cv2.cvtColor(layout.written,cv2.COLOR_BGR2RGB)),'total')
-        card={'id':str(ci),'name':name.text,'name_confidence':name.confidence,'written_total':written.text,'days':[], 'image':png_data(layout.image)}
+        card={'id':str(ci),'name':name.text,'name_confidence':name.confidence,'written_total':written.text,'days':[], 'image':png_data(layout.image) if include_images else ''}
         for di,cell in enumerate(layout.cells):
             if os.getenv('EXTRACT_PROGRESS'):
                 print(f'Reading card {ci+1}, day {di+1}',flush=True)
@@ -239,7 +239,9 @@ def extract(image,recognizer,layouts=None):
                  'ink_class':guessed,'raw_status':status_read.text if status_read else '', 'source':'ocr','reviewed':False,
                  'note':note.text,'adjustment_hours':adjustments[0] if len(adjustments)==1 else '0',
                  'adjustment_confirmed':False, # Every notes area must be inspected, including failed OCR.
-                 'image':png_data(layout.image[round(120+di*600/7)-layout.cell_padding:round(120+(di+1)*600/7)+layout.cell_padding,182:306]),'note_image':png_data(layout.notes[di]),'punch_images':[png_data(p) for p in punches]}
+                 'image':png_data(layout.image[round(120+di*600/7)-layout.cell_padding:round(120+(di+1)*600/7)+layout.cell_padding,182:306]) if include_images else '',
+                 'note_image':png_data(layout.notes[di]) if include_images else '',
+                 'punch_images':[png_data(p) for p in punches] if include_images else []}
             card['days'].append(row)
         cards.append(card)
     return cards
