@@ -1,8 +1,9 @@
 import * as ort from 'onnxruntime-web/wasm';
 import wasmUrl from 'onnxruntime-web/ort-wasm-simd-threaded.wasm?url';
 import wasmModuleUrl from 'onnxruntime-web/ort-wasm-simd-threaded.mjs?url';
-import {skipFallback,cropStage,type CropReading,type CropTask} from './ocr-policy';
+import {skipFallback,type CropReading,type CropTask} from './ocr-policy';
 import {ocrThreadCount} from './ocr-threads';
+import {cardTaskBatches} from './ocr-batches';
 ort.env.wasm.numThreads=ocrThreadCount(import.meta.env.VITE_OCR_THREADS,self.crossOriginIsolated,typeof SharedArrayBuffer!=='undefined',navigator.hardwareConcurrency||1);
 ort.env.wasm.proxy=false;
 // These URLs previously had no COEP headers and may be cached indefinitely.
@@ -13,7 +14,7 @@ let session:ort.InferenceSession|undefined;
 let characters:string[]=[];
 scope.onmessage=async event=>{
  try{
-  const {model,tasks}=event.data as {model?:ArrayBuffer;tasks:CropTask[]};
+  const {model,tasks,cardTasks}=event.data as {model?:ArrayBuffer;tasks:CropTask[];cardTasks?:string[][]};
   const started=performance.now(),reused=Boolean(session);
   if(!session){
    if(!model)throw new Error('The device model needs to be loaded again.');
@@ -25,13 +26,13 @@ scope.onmessage=async event=>{
   scope.postMessage({initialized:true});
   const loaded=performance.now(),readings:Record<string,CropReading>={};
   // Originals always run before any shared fallback that depends on them.
-  const ordered=[...tasks].sort((a,b)=>cropStage(a)-cropStage(b));
+  const batches=cardTaskBatches(tasks,cardTasks);let completed=0;
   let processed=0,skipped=0;
   let imageDecodeMs=0,inputPrepMs=0,inferenceMs=0,textDecodeMs=0,cleanupMs=0;
   const canvas=new OffscreenCanvas(1,48),context=canvas.getContext('2d');
   if(!context)throw new Error('Image processing is unavailable in this browser.');
-  for(let index=0;index<ordered.length;index++){
-   const task=ordered[index];
+  for(let cardIndex=0;cardIndex<batches.length;cardIndex++){
+  for(const task of batches[cardIndex]){
    if(skipFallback(task,readings)){
     readings[task.id]={text:'',confidence:0,skipped_reason:task.recover_for?.length?'standard_valid':'original_valid'};skipped++;
    }else{
@@ -63,7 +64,10 @@ scope.onmessage=async event=>{
      textDecodeMs+=performance.now()-decodeStarted;
     }finally{const cleanupStarted=performance.now();input.dispose();if(output)for(const tensor of Object.values(output))tensor.dispose();cleanupMs+=performance.now()-cleanupStarted;}
    }
-   scope.postMessage({progress:`Reading on this device: ${index+1} of ${ordered.length} crops${skipped?` (${skipped} fallback retries avoided)`:''}`});
+   completed++;
+   scope.postMessage({progress:`Reading on this device: ${completed} of ${tasks.length} crops${skipped?` (${skipped} fallback retries avoided)`:''}`});
+  }
+  if(cardTasks)scope.postMessage({cardIndex,cardReadings:Object.fromEntries(cardTasks[cardIndex].map(id=>[id,readings[id]]))});
   }
   const readMs=performance.now()-loaded;
   const otherMs=Math.max(0,readMs-imageDecodeMs-inputPrepMs-inferenceMs-textDecodeMs-cleanupMs);

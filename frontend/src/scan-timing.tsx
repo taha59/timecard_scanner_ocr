@@ -1,5 +1,11 @@
 import type {DeviceOcrStats} from './device-ocr';
 export type RequestTiming={untilResponseMs:number;downloadMs:number;jsonParseMs:number;responseBytes:number|null;server:Record<string,number>};
+export function addRequestTiming(a:RequestTiming|null,b:RequestTiming):RequestTiming{
+ if(!a)return b;
+ const server={...a.server};for(const [key,value] of Object.entries(b.server))server[key]=(server[key]||0)+value;
+ return {untilResponseMs:a.untilResponseMs+b.untilResponseMs,downloadMs:a.downloadMs+b.downloadMs,jsonParseMs:a.jsonParseMs+b.jsonParseMs,
+  responseBytes:a.responseBytes===null||b.responseBytes===null?null:a.responseBytes+b.responseBytes,server};
+}
 
 export function parseServerTiming(header:string|null){
  const timings:Record<string,number>={};
@@ -47,7 +53,7 @@ export function ReadingTiming({stats}:{stats:DeviceOcrStats}){
  </dl><p className="quiet">These stages are included in Reading time. They measure elapsed time, including any device scheduling delays.</p></div>;
 }
 
-export function ResultsTiming({timing}:{timing:RequestTiming}){
+export function ResultsTiming({timing,live=false}:{timing:RequestTiming;live?:boolean}){
  return <div className="preparation-timing"><h3>Results check breakdown</h3><dl>
   <dt>Until results response starts</dt><dd>{seconds(timing.untilResponseMs)}</dd>
   <dt>Download results</dt><dd>{seconds(timing.downloadMs)}</dd>
@@ -56,5 +62,5 @@ export function ResultsTiming({timing}:{timing:RequestTiming}){
   <dt>Rebuild layouts</dt><dd>{seconds(timing.server.layouts)}</dd>
   <dt>Reconstruct entries and source images</dt><dd>{seconds(timing.server.reconstruct)}</dd>
   <dt>Calculate totals and build results</dt><dd>{seconds(timing.server.response_build)}</dd>
- </dl><p className="quiet">Server values overlap the results request time; do not add them again.</p></div>;
+ </dl><p className="quiet">{live?'These are summed per-card requests, which run while other cards are being read and overlap Reading time. ':''}Server values overlap the results request time; do not add them again.</p></div>;
 }

@@ -55,18 +55,22 @@ flowchart TD
     Consent --> Device
     Mode -->|Manual entry| Manual[Extract crops without recognition]
     Mode -->|Enabled server OCR| Server[Backend loads and runs selected reader]
-    Device --> Cards[Show employee cards and day crops]
+    Device --> Live[Read and check one employee at a time]
+    Live --> Cards[Show completed employee cards and day crops]
+    Live -->|Remaining cards| Live
     Manual --> Cards
     Server --> Cards
     Cards --> Inspect[Expand employee or enlarge a source crop]
-    Inspect --> Edit[Edit names, times, or written total]
+    Inspect --> Stopped{Processing finished or canceled?}
+    Stopped -->|No| Inspect
+    Stopped -->|Yes| Edit[Edit names, times, or written total]
     Edit --> Recalculate[Backend recalculates after a 350 ms pause]
     Recalculate --> Cards
 ```
 
 **Source:** `App()`, `accept()`, `rotateSource()`, `installModel()`, `scan()`, `editDay()`, `editCard()`, and `update()` in `frontend/src/main.tsx`.
 
-The first employee is expanded by default. Status, adjustment, note, and reviewed fields still exist internally, but their controls are absent from the current UI. Clear both time fields to exclude a day. A new photo or rotation clears previous results.
+The first employee is expanded by default. Completed cards stay viewable while the remaining cards run; editing is locked until processing stops. Canceling keeps completed cards and rejects late results. Status, adjustment, note, and reviewed fields still exist internally, but their controls are absent from the current UI. Clear both time fields to exclude a day. A new photo or rotation clears previous results.
 
 ## 3. Request and data flow: default device OCR
 
@@ -82,19 +86,23 @@ sequenceDiagram
     participant Calc as Python parsing and calculation
 
     User->>UI: Choose photo and rotation; start scan
-    UI->>API: POST /api/scan: image, rotation, device=true
+    UI->>API: POST /api/scan: image, rotation, device=true, live=true
     API->>Geometry: EXIF correction, resizing, rotation, detect_cards()
     Geometry-->>API: Normalized cards and crop geometry
     API->>Calc: extract() with collecting DeviceRecognizer
     Calc-->>API: Deterministic crop tasks
-    API-->>UI: layouts + tasks, including PNG data URLs
-    UI->>Worker: Tasks, vocabulary, cached model if needed
-    Worker-->>UI: Progress, readings, timing statistics
-    UI->>API: POST /api/device-result: layouts + readings
-    API->>Calc: unpack_layouts(), replay extract(), punch-only totals
-    Calc-->>API: Parsed cards, warnings, computed totals
-    API-->>UI: cards + scan_id + message
-    UI-->>User: Editable fields beside source crops
+    API-->>UI: layouts + tasks + per-card task IDs
+    UI->>Worker: Tasks, card groups, vocabulary, cached model if needed
+    loop Each employee card
+        Worker-->>UI: Completed card readings; continue OCR on next card
+        UI->>API: POST /api/device-result: one layout + its readings
+        API->>Calc: Rebuild card, parse punches, calculate totals
+        Calc-->>API: One parsed card and computed totals
+        API-->>UI: Completed card
+        UI-->>User: View card and source crops; edits locked
+    end
+    Worker-->>UI: All readings and timing statistics
+    UI-->>User: Unlock editing after queued results finish
     User->>UI: Correct a time
     Note over UI: Update locally; wait 350 ms after latest edit
     UI->>API: POST /api/calculate: full cards array
@@ -106,7 +114,7 @@ sequenceDiagram
 
 **Source:** `scan()`/`update()` in `main.tsx`; `/api/scan`, `/api/device-result`, `/api/calculate` in `backend/app.py`; `DeviceRecognizer`, `pack_layouts()`, `unpack_layouts()` in `backend/device_ocr.py`.
 
-The original photo is uploaded once per scan. The result request includes normalized card images, and recalculation currently serializes the entire cards array, including its image fields. There is no database request and no server-side lookup by `scan_id`.
+The original photo is uploaded once per scan. Initial cropping still prepares all cards before OCR starts. `ocr-batches.ts` orders each card's work and shared prerequisites without reading duplicate tasks again. Result requests are queued one at a time while the worker reads the next card. Older preparation responses without card groups still use one full-batch result request. Recalculation currently serializes the entire cards array, including its image fields. There is no database request and no server-side lookup by `scan_id`.
 
 ## 4. Core feature: model download and worker lifecycle
 
@@ -251,4 +259,4 @@ flowchart TD
 
 **Source:** `revision`, `abort`, `timer`, `cancelScan()`, `accept()`, `rotateSource()`, `scan()`, and `update()` in `main.tsx`; abort handlers in `device-ocr.ts`.
 
-New scans and edits also supersede earlier operations. OpenCV processing already executing in Flask may continue until it finishes, even after the client aborts. There is no persisted job, queue, polling route, or database state to cancel.
+New scans and edits also supersede earlier operations. OpenCV processing already executing in Flask may continue until it finishes, even after the client aborts. There is no persisted job, server-side queue, polling route, or database state to cancel.

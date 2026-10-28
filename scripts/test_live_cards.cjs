@@ -1,0 +1,72 @@
+const assert=require('node:assert/strict');
+const {JSDOM}=require('../frontend/node_modules/jsdom'),{buildSync}=require('../frontend/node_modules/esbuild');
+const dom=new JSDOM('<div id="root"></div>',{url:'http://localhost',runScripts:'outside-only'}),w=dom.window;
+global.window=w;global.document=w.document;global.HTMLElement=w.HTMLElement;global.MutationObserver=w.MutationObserver;
+w.AbortController=AbortController;w.Headers=Headers;w.isSecureContext=true;w.WebAssembly=WebAssembly;w.OffscreenCanvas=class{};
+w.URL.createObjectURL=()=> 'blob:test';w.URL.revokeObjectURL=()=>{};
+const workers=[],requests=[];
+w.Worker=class{constructor(){workers.push(this);}postMessage(value){this.sent=value;}terminate(){this.terminated=true;}send(data){this.onmessage?.({data});}};
+w.caches={open:async()=>({match:async()=>({arrayBuffer:async()=>new ArrayBuffer(8)})})};
+const response=(body,status=200)=>new Response(JSON.stringify(body),{status,headers:{'Content-Type':'application/json'}});
+w.fetch=(url,options)=>url==='/api/device-model'?Promise.resolve(response({version:'ppocrv6-rec-medium-v1',sha256:'test',characters:[]})):new Promise(resolve=>requests.push({url,options,resolve}));
+w.eval(buildSync({entryPoints:['frontend/src/main.tsx'],bundle:true,write:false,format:'iife',loader:{'.css':'empty'},define:{'process.env.NODE_ENV':'"test"','import.meta.env':'{}','import.meta.url':'"http://localhost/src/device-ocr.ts"'},jsx:'automatic',logLevel:'silent'}).outputFiles[0].text);
+const {within,waitFor}=require('../frontend/node_modules/@testing-library/dom');
+const user=require('../frontend/node_modules/@testing-library/user-event').default.setup({document:w.document});const screen=within(w.document.body);
+const amount={hm:'8:00',decimal:'8.00',minutes:480};
+function card(name){return {id:'0',name,image:'data:image/png;base64,crop',written_total:'',days:Array.from({length:7},(_,i)=>({label:`Day ${i+1}`,status:'worked',in:'9:00am',out:'5:00pm',adjustment_hours:'0',adjustment_confirmed:false,reviewed:false,note:'',image:'data:image/png;base64,crop',note_image:'',punch_images:[],computed:amount,flags:[]})),totals:{regular:amount,complete:true},cross_check:{message:null,candidates:[]}};}
+const job={layouts:['layout0','layout1'],tasks:[{id:'a',image:'a'},{id:'b',image:'b'}],card_tasks:[['a'],['b']]};
+(async()=>{
+ await waitFor(()=>screen.getByText('PaddleOCR PP-OCRv6 Medium ready on this device'));
+ await user.upload(w.document.querySelector('input[type=file]'),new w.File(['real photo supplied by browser tests'],'cards.jpg',{type:'image/jpeg'}));
+ await user.click(screen.getByRole('button',{name:'Scan on this device →'}));
+ await waitFor(()=>assert.equal(requests.length,1));assert.equal(requests[0].options.body.get('live'),'true');requests[0].resolve(response(job));
+ await waitFor(()=>assert.equal(workers.length,1));const worker=workers[0];
+ assert.deepEqual(Array.from(worker.sent.cardTasks[0]),['a']);
+ worker.send({initialized:true});worker.send({cardIndex:0,cardReadings:{a:{text:'9:00am',confidence:.79}}});
+ await waitFor(()=>assert.equal(requests.length,2));
+ assert.equal(requests[1].url,'/api/device-result');assert.deepEqual(JSON.parse(requests[1].options.body).layouts,['layout0']);
+ requests[1].resolve(response({cards:[card('First')],scan_id:'server0'}));
+ await waitFor(()=>screen.getByRole('heading',{name:'1 card to review'}));
+ assert.ok(screen.getByRole('link',{name:'View 1 of 2 ready timecards ↓'}));
+ assert.equal(screen.getByRole('textbox',{name:'First Day 1 IN'}).disabled,true);
+ assert.equal(screen.getByRole('textbox',{name:'Card 1 employee name'}).disabled,true);
+ await user.click(screen.getByAltText('Day 1 source crop').closest('button'));assert.ok(screen.getByRole('dialog',{name:'Inspect day crop'}));
+ await user.click(screen.getByRole('button',{name:'Close ×'}));
+ const source=w.document.querySelector('.card-source');source.open=true;
+ worker.send({cardIndex:1,cardReadings:{b:{text:'5:00pm',confidence:.79}}});
+ await waitFor(()=>assert.equal(requests.length,3));requests[2].resolve(response({cards:[card('Second')],scan_id:'server1'}));
+ await waitFor(()=>screen.getByRole('heading',{name:'2 cards to review'}));
+ assert.equal(source.open,true);assert.equal(w.document.querySelectorAll('.card-body')[1].hidden,true);
+ assert.equal(screen.getByRole('textbox',{name:'First Day 1 IN'}).disabled,true);
+ worker.send({readings:{a:{text:'9:00am',confidence:.79},b:{text:'5:00pm',confidence:.79}},stats:{loadMs:1,readMs:10,total:2,processed:2,skipped:0,threads:4}});
+ await waitFor(()=>assert.equal(screen.getByRole('textbox',{name:'First Day 1 IN'}).disabled,false));
+ assert.equal(screen.queryByRole('link',{name:/ready timecards/}),null);
+ assert.equal(requests.length,3); // No repeated full-batch result request.
+ assert.match(screen.getByText(/Total .*Final results wait/).textContent,/Final results wait/);
+ // Cancellation keeps completed cards and rejects later responses from this scan.
+ await user.click(screen.getByRole('button',{name:'Scan on this device →'}));
+ await waitFor(()=>assert.equal(requests.length,4));requests[3].resolve(response(job));
+ await waitFor(()=>assert.ok(worker.onmessage));
+ worker.send({initialized:true});worker.send({cardIndex:0,cardReadings:{a:{text:'9:00am',confidence:.79}}});
+ await waitFor(()=>assert.equal(requests.length,5));requests[4].resolve(response({cards:[card('Kept')],scan_id:'kept'}));
+ await waitFor(()=>screen.getByRole('textbox',{name:'Kept Day 1 IN'}));
+ worker.send({cardIndex:1,cardReadings:{b:{text:'5:00pm',confidence:.79}}});await waitFor(()=>assert.equal(requests.length,6));
+ await user.click(screen.getByRole('button',{name:'Cancel processing'}));
+ assert.equal(worker.terminated,true);assert.equal(requests[5].options.signal.aborted,true);
+ requests[5].resolve(response({cards:[card('STALE')],scan_id:'stale'}));
+ await new Promise(r=>setTimeout(r,30));assert.equal(screen.queryByDisplayValue('STALE'),null);
+ assert.equal(screen.getByRole('textbox',{name:'Kept Day 1 IN'}).disabled,false);
+ // A failed first result request must not be hidden by cancellation errors
+ // from already-queued later cards.
+ await user.click(screen.getByRole('button',{name:'Scan on this device →'}));
+ await waitFor(()=>assert.equal(requests.length,7));requests[6].resolve(response(job));
+ await waitFor(()=>assert.equal(workers.length,2));const retry=workers[1];
+ retry.send({initialized:true});retry.send({cardIndex:0,cardReadings:{a:{text:'9:00am',confidence:.79}}});
+ retry.send({cardIndex:1,cardReadings:{b:{text:'5:00pm',confidence:.79}}});
+ await waitFor(()=>assert.equal(requests.length,8));requests[7].resolve(response({error:'Card check failed'},500));
+ await waitFor(()=>screen.getByText('Card check failed'));
+ assert.equal(screen.getByRole('button',{name:'Scan on this device →'}).disabled,false);
+ assert.equal(requests.length,8);
+ console.log('PASS: a completed card is viewable during remaining OCR, fields stay locked, later cards preserve open previews, finish unlocks editing, and cancel retains completed cards without accepting late results.');
+ w.dispatchEvent(new w.Event('pagehide'));dom.window.close();
+})().catch(e=>{console.error(e);w.dispatchEvent(new w.Event('pagehide'));dom.window.close();process.exitCode=1;});

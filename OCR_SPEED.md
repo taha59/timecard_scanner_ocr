@@ -242,3 +242,40 @@ inference still runs only in the browser. Each model requires its own download
 consent. Switching models releases the loaded worker and loads the selected
 cached bytes. Removing the selected model preserves the other cache entry.
 The timing summary includes the model name so phone comparisons remain clear.
+
+
+## Live employee cards — October 28, 2026
+
+Device scans now request `live=true`, adding `card_tasks` to preparation JSON.
+Each group lists the existing task IDs used by one employee. Tasks still share
+one model worker and retain their existing IDs, pixels and retry metadata.
+`ocr-batches.ts` schedules each card with all prerequisites for shared retries;
+each unique crop is still read once. Completed-card messages carry only readings,
+not another copy of the crop images.
+
+As a card finishes, the frontend queues a one-card `/api/device-result` request
+while browser OCR continues on later cards. Results appear in employee order,
+with source images and calculated totals. Open previews/collapsed states survive
+later arrivals. Fields are read-only until processing finishes, fails, or is
+canceled. Cancellation retains completed cards and rejects late responses.
+The initial backend cropping step still prepares all cards before OCR begins.
+No server streaming job, saved upload or persisted results are introduced.
+
+Actual local mobile-width Chromium tests on the real seven-card photo:
+
+| Model | First completed card visible | Whole scan finished |
+| --- | ---: | ---: |
+| PP-OCRv6 Medium | 5.32 s | 27.73 s |
+| PP-OCRv6 Small | 2.80 s | 9.27 s |
+
+These are local elapsed UI timings, not iPhone/Render predictions or a claim of
+higher OCR throughput. Both models returned exactly the same complete card JSON
+as their own legacy global task ordering and full-batch result reconstruction.
+This includes time fields, source images, recovery metadata and totals; it does
+not claim either model is fully accurate against handwriting.
+
+Preparation timing remains one request. Results breakdown sums the per-card
+requests, which overlap Reading time. The summary's `Final results wait` is only
+the remaining wait after OCR finishes; adding all results request durations to
+Reading would count overlapping work twice. Older preparation responses without
+card groups retain the previous batch behavior.

@@ -205,6 +205,7 @@ def extract(image,recognizer,layouts=None,include_images=True,include_notes=True
     if hasattr(recognizer,'prepare'):
         recognizer.prepare(layouts)
     for ci,layout in enumerate(layouts):
+        if hasattr(recognizer,'begin_card'):recognizer.begin_card(ci)
         name=recognizer.read(Image.fromarray(cv2.cvtColor(layout.name,cv2.COLOR_BGR2RGB)),'text')
         written=recognizer.read(Image.fromarray(cv2.cvtColor(layout.written,cv2.COLOR_BGR2RGB)),'total')
         card={'id':str(ci),'name':name.text,'name_confidence':name.confidence,'written_total':written.text,'days':[], 'image':png_data(layout.image) if include_images else ''}

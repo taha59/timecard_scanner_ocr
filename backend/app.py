@@ -121,7 +121,7 @@ def create_app(recognizer=None):
         from .device_ocr import DEVICE_PNG_COMPRESSION
         return jsonify(ok=True,stateless=True,server_ocr_enabled=server_ocr,ocr_loaded=reader is not None,
                        ocr_engine=type(reader).__name__ if reader is not None else None,
-                       device_crop_png_compression=DEVICE_PNG_COMPRESSION,scan_profile='punch-only-v2')
+                       device_crop_png_compression=DEVICE_PNG_COMPRESSION,scan_profile='punch-only-v2',live_cards=True)
 
     @app.get('/api/access')
     def access():return jsonify(ok=True)
@@ -170,7 +170,10 @@ def create_app(recognizer=None):
             extract(None,collector,layouts=layouts,include_images=False,include_notes=False)
             g.stage_timings.append(('crops',(perf_counter()-stage_started)*1000))
             stage_started=perf_counter()
-            response=jsonify(layouts=pack_layouts(layouts),tasks=list(collector.tasks.values()))
+            payload={'layouts':pack_layouts(layouts),'tasks':list(collector.tasks.values())}
+            if request.form.get('live')=='true':
+                payload['card_tasks']=[list(keys) for keys in collector.card_tasks]
+            response=jsonify(payload)
             g.stage_timings.append(('response_build',(perf_counter()-stage_started)*1000))
             return response
         if manual:active=UnavailableRecognizer()

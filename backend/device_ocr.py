@@ -17,13 +17,20 @@ class DeviceRecognizer:
         self.tasks={}
         self.readings=readings
         self._prepared_punches={}
+        self.card_tasks=[]
+        self._card_index=None
+
+    def begin_card(self,index):
+        self._card_index=index
 
     def prepare(self,layouts):
         if self.readings is None:
             self._prepared_punches.clear()
+            self.card_tasks=[{} for _ in layouts]
             # Even a visually blank row can produce text on the device. Record
             # both punches up front so replay never needs an unprepared task.
-            for layout in layouts:
+            for index,layout in enumerate(layouts):
+                self.begin_card(index)
                 for day,cell in enumerate(layout.cells):
                     self.read_punches(layout,day,punch_crops(clean_ink(cell)))
 
@@ -36,6 +43,8 @@ class DeviceRecognizer:
         image=image.convert('RGB')
         key=self._key(image,mode)
         if self.readings is None:
+            if self._card_index is not None and self._card_index<len(self.card_tasks):
+                self.card_tasks[self._card_index][key]=None
             if key not in self.tasks:self.tasks[key]={'id':key,'image':png_data(image,compress_level=DEVICE_PNG_COMPRESSION),'required':required}
             elif required:self.tasks[key]['required']=True
             return Reading('',0)

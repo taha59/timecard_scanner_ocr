@@ -27,6 +27,12 @@ assert.deepEqual(JSON.parse(JSON.stringify(parseServerTiming('bad;dur=Infinity, 
  assert.equal(context.scanTiming.ReadingTiming({stats:{readMs:100}}),null);
  const results=renderToStaticMarkup(context.scanTiming.ResultsTiming({timing:result.timing}));
  assert.ok(results.includes('Results check breakdown')&&results.includes('Results server processing'));
+ const summed=context.scanTiming.addRequestTiming(result.timing,result.timing);
+ assert.equal(summed.untilResponseMs,2*result.timing.untilResponseMs);
+ assert.equal(summed.server.compute,2*result.timing.server.compute);
+ assert.equal(context.scanTiming.addRequestTiming(null,result.timing),result.timing);
+ const liveResults=renderToStaticMarkup(context.scanTiming.ResultsTiming({timing:summed,live:true}));
+ assert.ok(liveResults.includes('overlap Reading time'));
  assert.equal(result.timing.untilResponseMs+result.timing.downloadMs+result.timing.jsonParseMs,85);
  clock.push(200,201);
  const old=await readTimedJson({text:async()=>'{}',headers:{get:()=>null}},185,190);
