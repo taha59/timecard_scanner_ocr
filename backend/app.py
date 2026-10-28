@@ -7,9 +7,10 @@ import hmac
 import json
 import os
 import threading
+from time import perf_counter
 import cv2
 import numpy as np
-from flask import Flask,Request,request,jsonify,send_file,send_from_directory
+from flask import Flask,Request,request,jsonify,send_file,send_from_directory,g
 from PIL import Image,ImageOps,UnidentifiedImageError
 from werkzeug.exceptions import HTTPException
 from .calculator import calculate_cards,STATUSES
@@ -59,6 +60,8 @@ def create_app(recognizer=None):
     @app.before_request
     def protect_api():
         if not request.path.startswith('/api/'):return None
+        g.request_started=perf_counter()
+        g.stage_timings=[]
         origin=request.headers.get('Origin')
         same_origin=request.host_url.rstrip('/')
         if origin and origin!=same_origin and origin not in origins:
@@ -74,11 +77,21 @@ def create_app(recognizer=None):
         if request.path.startswith('/api/'):
             response.headers['Cache-Control']='no-store'
             response.headers['Vary']='Origin'
+            if hasattr(g,'request_started'):
+                finished=perf_counter()
+                timings=list(g.stage_timings)
+                if hasattr(g,'compute_started'):timings.append(('compute',(finished-g.compute_started)*1000))
+                timings.append(('handler',(finished-g.request_started)*1000))
+                response.headers['Server-Timing']=', '.join(f'{name};dur={duration:.3f}' for name,duration in timings)
+            if response.mimetype=='application/json':
+                length=response.calculate_content_length()
+                if length is not None:response.headers['X-Response-Bytes']=str(length)
             if origin in origins:
                 response.headers['Access-Control-Allow-Origin']=origin
                 response.headers['Access-Control-Allow-Methods']='GET, POST, OPTIONS'
                 response.headers['Access-Control-Allow-Headers']='Authorization, Content-Type'
                 response.headers['Access-Control-Max-Age']='600'
+                response.headers['Access-Control-Expose-Headers']='Server-Timing, X-Response-Bytes'
         if not request.path.startswith('/api/'):
             response.headers['Cross-Origin-Opener-Policy']='same-origin'
             response.headers['Cross-Origin-Embedder-Policy']='require-corp'
@@ -128,6 +141,11 @@ def create_app(recognizer=None):
         rotation=request.form.get('rotation','0')
         if rotation not in {'0','90','180','270'}:
             raise ValueError('Rotation must be 0, 90, 180, or 270 degrees clockwise')
+        # Accessing request.form/files consumes multipart input and can include
+        # waiting for upload bytes. Keep it separate from image processing.
+        g.stage_timings.append(('request_read',(perf_counter()-g.request_started)*1000))
+        g.compute_started=perf_counter()
+        stage_started=perf_counter()
         with Image.open(upload.stream) as source:
             if source.width*source.height>24_000_000:raise ValueError('Image exceeds 24 megapixels. Resize and try again.')
             pil=ImageOps.exif_transpose(source).convert('RGB')
@@ -136,13 +154,21 @@ def create_app(recognizer=None):
             pil.thumbnail((int(pil.width*scale),int(pil.height*scale)),Image.Resampling.LANCZOS)
         if rotation!='0':pil=pil.rotate(-int(rotation),expand=True)
         image=cv2.cvtColor(np.array(pil),cv2.COLOR_RGB2BGR)
+        g.stage_timings.append(('image',(perf_counter()-stage_started)*1000))
         if device:
             from .device_ocr import DeviceRecognizer,pack_layouts
+            stage_started=perf_counter()
             layouts=detect_cards(image)
+            g.stage_timings.append(('grid',(perf_counter()-stage_started)*1000))
             if len(layouts)>20:raise ValueError('Use at most 20 cards per photo')
             collector=DeviceRecognizer()
+            stage_started=perf_counter()
             extract(None,collector,layouts=layouts)
-            return jsonify(layouts=pack_layouts(layouts),tasks=list(collector.tasks.values()))
+            g.stage_timings.append(('crops',(perf_counter()-stage_started)*1000))
+            stage_started=perf_counter()
+            response=jsonify(layouts=pack_layouts(layouts),tasks=list(collector.tasks.values()))
+            g.stage_timings.append(('response_build',(perf_counter()-stage_started)*1000))
+            return response
         if manual:active=UnavailableRecognizer()
         else:
             with reader_lock:

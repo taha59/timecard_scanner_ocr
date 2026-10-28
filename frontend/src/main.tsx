@@ -1,3 +1,4 @@
+import {PreparationTiming,readTimedJson,type RequestTiming} from './scan-timing';
 import {ScanProgress} from './scan-progress';
 import React,{useEffect,useRef,useState} from 'react';
 import {createRoot} from 'react-dom/client';
@@ -9,9 +10,11 @@ type Amount={hm:string|null;decimal:string|null;minutes:number|null};
 type Day={raw_in?:string;raw_out?:string;label:string;status:string;in:string;out:string;adjustment_hours:string;adjustment_confirmed:boolean;reviewed:boolean;note:string;image:string;note_image:string;punch_images:string[];computed:Amount;flags:string[]};
 type Card={id:string;name:string;written_total:string;image:string;days:Day[];needs_review:boolean;totals:{regular:Amount;adjustments:Amount;grand:Amount;known_punch_subtotal:Amount;complete:boolean};cross_check:{message:string|null;candidates:{interpretation:string;hm:string;difference:Amount}[]}};
 type Scan={cards:Card[];scan_id:string;message:string;manual:boolean};
-async function api(path:string,options:RequestInit){
+async function api(path:string,options:RequestInit,report?:(timing:RequestTiming)=>void){
+ const started=performance.now();
  let r:Response;try{r=await apiFetch(path,options);}catch(e){if((e as Error).name==='AbortError')throw e;throw new Error('Cannot reach the calculation service. Try again; totals are unavailable until the request succeeds.');}
- let data;try{data=await r.json();}catch{throw new Error('The service returned an unreadable response. Try again.');}
+ const headersReceived=performance.now();
+ let data;try{if(report){const result=await readTimedJson(r,started,headersReceived);data=result.data;report(result.timing);}else data=await r.json();}catch(e){if((e as Error).name==='AbortError')throw e;throw new Error('The service returned an unreadable response. Try again.');}
  if(!r.ok)throw new Error(data.error||`Request failed (${r.status})`);return data;
 }
 const amount=(a?:Amount)=>a?.hm==null?'Unresolved':`${a.hm} · ${a.decimal} h`;
@@ -23,6 +26,7 @@ function App(){
  const [manifest,setManifest]=useState<ModelManifest|null>(null),[modelReady,setModelReady]=useState(false),[modelBusy,setModelBusy]=useState(false),[progress,setProgress]=useState('');
  const [accessGranted,setAccessGranted]=useState(!passwordRequired),[password,setPassword]=useState(''),[accessBusy,setAccessBusy]=useState(false);
  const [scanTiming,setScanTiming]=useState('');
+ const [preparationTiming,setPreparationTiming]=useState<RequestTiming|null>(null);
  const supported=deviceSupported();
  async function unlock(event:React.FormEvent){event.preventDefault();setAccessBusy(true);setError('');setAccessToken(password);try{await api('/api/access',{method:'GET'});setAccessGranted(true);setPassword('');}catch(e){setAccessToken('');setError((e as Error).message);}finally{setAccessBusy(false);}}
  useEffect(()=>{if(!supported||!accessGranted)return;let canceled=false;apiFetch('/api/device-model').then(r=>{if(!r.ok)throw new Error('Model information unavailable');return r.json();}).then(async m=>{const ready=await modelPresent(m);if(!canceled){setManifest(m);setModelReady(ready);}}).catch(()=>{if(!canceled)setManifest(null);});return()=>{canceled=true;};},[accessGranted]);
@@ -71,10 +75,10 @@ function App(){
   return()=>{cancelled=true;image.onload=null;image.onerror=null;URL.revokeObjectURL(originalUrl);if(rotatedUrl)URL.revokeObjectURL(rotatedUrl);};
  },[file,rotation]);
  useEffect(()=>()=>{if(timer.current)clearTimeout(timer.current);abort.current?.abort();},[]);
- function accept(f:File){if(!f.type.startsWith('image/')){setError('Choose an image file.');return;}setScanTiming('');setFile(f);setRotation(0);setPreviewBusy(false);setMessage('');setError('');setCards([]);setExpandedCards({});setScanId('');revision.current++;abort.current?.abort();if(timer.current)clearTimeout(timer.current);setPending(false);}
+ function accept(f:File){if(!f.type.startsWith('image/')){setError('Choose an image file.');return;}setScanTiming('');setPreparationTiming(null);setFile(f);setRotation(0);setPreviewBusy(false);setMessage('');setError('');setCards([]);setExpandedCards({});setScanId('');revision.current++;abort.current?.abort();if(timer.current)clearTimeout(timer.current);setPending(false);}
  function rotateSource(delta:number){
   if(!file||busy||previewBusy)return;
-  setScanTiming('');setRotation(previous=>(previous+delta+360)%360);setPreviewBusy(true);
+  setScanTiming('');setPreparationTiming(null);setRotation(previous=>(previous+delta+360)%360);setPreviewBusy(true);
   setError('');setMessage('');setCards([]);setExpandedCards({});setScanId('');setInspect(null);
   revision.current++;abort.current?.abort();if(timer.current)clearTimeout(timer.current);setPending(false);
  }
@@ -88,7 +92,7 @@ function App(){
   finally{if(rev===revision.current){setBusy(false);setModelBusy(false);setProgress('');abort.current=null;}}
  }
  async function forgetModel(){try{await removeModel();setModelReady(false);setMessage('Downloaded model removed from this browser.');}catch{setError('Could not remove the saved model. Try again.');}}
- async function scan(manual=false){if(busy||!file||previewBusy||!preview||(!manual&&ocrMode==='device'&&!modelReady))return;setCards([]);setExpandedCards({});setInspect(null);setScanId('');setScanTiming('');setProgress('');setBusy(true);setError('');setMessage('');const rev=++revision.current;
+ async function scan(manual=false){if(busy||!file||previewBusy||!preview||(!manual&&ocrMode==='device'&&!modelReady))return;setCards([]);setExpandedCards({});setInspect(null);setScanId('');setScanTiming('');setPreparationTiming(null);setProgress('');setBusy(true);setError('');setMessage('');const rev=++revision.current;
   abort.current?.abort();if(timer.current)clearTimeout(timer.current);setPending(false);
   const controller=new AbortController();abort.current=controller;
   const form=new FormData();form.append('image',file);form.append('rotation',String(rotation));if(manual)form.append('manual','true');
@@ -99,7 +103,7 @@ function App(){
     if(!await modelPresent(manifest)){setModelReady(false);throw new Error('The saved model is no longer available. Download it again before scanning.');}
     const started=performance.now();let deviceStats:DeviceOcrStats|null=null;
     form.append('device','true');setProgress('Preparing crops on the server…');
-    const prepared=await api('/api/scan',{method:'POST',body:form,signal:controller.signal});
+    const prepared=await api('/api/scan',{method:'POST',body:form,signal:controller.signal},timing=>{if(rev===revision.current)setPreparationTiming(timing);});
     const cropped=performance.now();
     const readings=await recognizeOnDevice(manifest,prepared.tasks,controller.signal,text=>{if(rev===revision.current)setProgress(text);},stats=>{deviceStats=stats;});
     const recognized=performance.now();
@@ -123,7 +127,7 @@ function App(){
  function editDay(ci:number,di:number,patch:Partial<Day>){editCard(ci,{days:cards[ci].days.map((d,i)=>i===di?{...d,...patch}:d)});}
  const resultsBlocked=pending||Boolean(error);
  const current=inspect?cards[inspect.ci]?.days[inspect.di]:null;
- if(!accessGranted)return <main className="access-panel"><h1>Timecard access</h1><p>Enter the private app password. It stays in memory until you close or refresh this page.</p><form onSubmit={unlock}><label>Access password<input type="password" autoComplete="current-password" required value={password} onChange={e=>setPassword(e.target.value)}/></label><button className="primary" disabled={accessBusy}>{accessBusy?'Checking…':'Unlock app'}</button></form>{scanTiming&&<details className="scan-timing" open><summary>Scan timing</summary><p>{scanTiming}</p></details>}
+ if(!accessGranted)return <main className="access-panel"><h1>Timecard access</h1><p>Enter the private app password. It stays in memory until you close or refresh this page.</p><form onSubmit={unlock}><label>Access password<input type="password" autoComplete="current-password" required value={password} onChange={e=>setPassword(e.target.value)}/></label><button className="primary" disabled={accessBusy}>{accessBusy?'Checking…':'Unlock app'}</button></form>{(scanTiming||preparationTiming)&&<details className="scan-timing" open><summary>Scan timing</summary>{scanTiming&&<p>{scanTiming}</p>}{preparationTiming&&<PreparationTiming timing={preparationTiming}/>}</details>}
  <div role="alert">{error}</div></main>;
  return <><header><a className="brand" href="/">▦ <span>Timecard</span><span className="brand-sub">PAYROLL REVIEW</span></a><span className="local-pill">Local OCR · Human review</span></header>
  <main><div className="intro"><div className="eyebrow">FROM PAPER TO PUNCHES</div><h1>Read the card.<br/><span>Verify the hours.</span></h1><p>Extract handwritten punches, inspect the originals, and calculate every minute from the times you approve.</p></div>
@@ -134,7 +138,7 @@ function App(){
  <details><summary>Add to your Home Screen</summary><p>iPhone: open in Safari, tap Share, then Add to Home Screen. Android: open the Chrome menu and choose Add to Home screen or Install app. HTTPS is required. The saved model can still be removed by browser storage cleanup.</p></details>
  </div>}
  <div className="actions"><button className="primary" onClick={()=>scan()} disabled={!file||busy||previewBusy||!preview||(ocrMode==='device'&&(!supported||!modelReady))}>{busy?(modelBusy?'Downloading model…':'Processing photo…'):ocrMode==='device'?'Scan on this device →':'Scan with local OCR →'}</button><button onClick={()=>scan(true)} disabled={!file||busy||previewBusy||!preview}>Extract crops for manual entry</button>{busy&&<button type="button" onClick={cancelScan}>Cancel processing</button>}<span>Only complete time pairs contribute to totals.</span></div>{progress&&<ScanProgress message={progress}/>}</section>
- {scanTiming&&<details className="scan-timing" open><summary>Scan timing</summary><p>{scanTiming}</p></details>}
+ {(scanTiming||preparationTiming)&&<details className="scan-timing" open><summary>Scan timing</summary>{scanTiming&&<p>{scanTiming}</p>}{preparationTiming&&<PreparationTiming timing={preparationTiming}/>}</details>}
  <div role="alert">{error&&<p className="error">{error}</p>}</div><div aria-live="polite">{message&&<p className="notice">{message}</p>}</div>
  {cards.length>0&&<><div className="review-heading"><div><div className="eyebrow">02 / VERIFY & CORRECT</div><h2>{cards.length} cards to review</h2><p>Check the times against the source. Clear both fields to exclude a day.</p></div><span className={pending?'pill pending':'pill'} role="status">{pending?'Recalculating…':error?'Calculation requires attention':'Calculated by Python'}</span></div>
  {cards.map((card,ci)=>{const expanded=expandedCards[card.id]??ci===0;return <section className="card" key={`${scanId}-${card.id}`}><div className="card-heading"><span className="card-index">{String(ci+1).padStart(2,'0')}</span><label className="name-label">Employee name<input aria-label={`Card ${ci+1} employee name`} value={card.name} placeholder="Enter employee name" onChange={e=>editCard(ci,{name:e.target.value})}/></label><button className="card-toggle" aria-label={`${expanded?'Collapse':'Expand'} employee ${ci+1}`} aria-expanded={expanded} aria-controls={`card-body-${card.id}`} onClick={()=>setExpandedCards(previous=>({...previous,[card.id]:!expanded}))}><span aria-hidden="true">{expanded?'▾':'▸'}</span> {expanded?'Hide details':'Show details'}</button></div>
