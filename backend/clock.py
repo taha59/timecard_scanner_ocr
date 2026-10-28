@@ -20,5 +20,3 @@ def parse_time(value):
     if meridiem:
         hour = hour % 12 + (12 if meridiem == 'pm' else 0)
     return hour * 60 + minute, bool(meridiem)
-
-
