@@ -141,3 +141,17 @@ with the existing diagnostics to check actual server savings and download cost.
 The OCR model, browser inference code, recognition thresholds, crop geometry,
 and source images shown to users are unchanged. Health reports
 `device_crop_png_compression: 1` to identify the updated backend.
+
+## Reading and results diagnostics
+
+A subsequent phone report measured 122.22 seconds total, with 21.95 seconds
+preparation, 87.29 seconds reading on four threads, and 12.40 seconds results
+checking (354 crops read, 91 skipped). The preparation improvement is measured;
+the cause of the increased reading time is not yet established.
+
+Scan timing now separates crop-image decoding, input preparation, model
+inference, recognized-text decoding, tensor cleanup, and other worker time.
+Results checking also separates request wait, download, JSON parsing, and backend
+layout reconstruction, entry/source-image reconstruction, and response building.
+These are elapsed durations including scheduling delays. The instrumentation does
+not change model weights, input pixels, recognition rules, threads or retries.
