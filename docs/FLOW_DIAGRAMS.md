@@ -70,7 +70,7 @@ flowchart TD
 
 **Source:** `App()`, `accept()`, `rotateSource()`, `installModel()`, `scan()`, `editDay()`, `editCard()`, and `update()` in `frontend/src/main.tsx`.
 
-The first employee is expanded by default. Completed cards stay viewable while the remaining cards run; editing is locked until processing stops. Canceling keeps completed cards and rejects late results. Status, adjustment, note, and reviewed fields still exist internally, but their controls are absent from the current UI. Clear both time fields to exclude a day. A new photo or rotation clears previous results.
+The first available employee is expanded by default. Completed cards stay viewable while the remaining cards run; editing is locked until processing stops. A failed results request does not cancel OCR. Temporary failures retry up to three attempts; a continuing connection failure pauses result submissions while remaining OCR readings are kept in page memory. **Retry unfinished cards** resumes those results without recognition or another upload. Refreshing, a new scan, or a new photo clears those saved readings. Canceling keeps completed cards and rejects late results. Status, adjustment, note, and reviewed fields still exist internally, but their controls are absent from the current UI. Clear both time fields to exclude a day.
 
 ## 3. Request and data flow: default device OCR
 
@@ -98,8 +98,13 @@ sequenceDiagram
         UI->>API: POST /api/device-result: one layout + its readings
         API->>Calc: Rebuild card, parse punches, calculate totals
         Calc-->>API: One parsed card and computed totals
-        API-->>UI: Completed card
-        UI-->>User: View card and source crops; edits locked
+        alt Result succeeds
+            API-->>UI: Completed card
+            UI-->>User: View card and source crops; edits locked
+        else Busy or network failure
+            UI->>API: Retry with backoff when appropriate
+            Note over UI: If still unavailable, retain readings; OCR continues
+        end
     end
     Worker-->>UI: All readings and timing statistics
     UI-->>User: Unlock editing after queued results finish
@@ -114,7 +119,7 @@ sequenceDiagram
 
 **Source:** `scan()`/`update()` in `main.tsx`; `/api/scan`, `/api/device-result`, `/api/calculate` in `backend/app.py`; `DeviceRecognizer`, `pack_layouts()`, `unpack_layouts()` in `backend/device_ocr.py`.
 
-The original photo is uploaded once per scan. Initial cropping still prepares all cards before OCR starts. `ocr-batches.ts` orders each card's work and shared prerequisites without reading duplicate tasks again. Result requests are queued one at a time while the worker reads the next card. Older preparation responses without card groups still use one full-batch result request. Recalculation currently serializes the entire cards array, including its image fields. There is no database request and no server-side lookup by `scan_id`.
+The original photo is uploaded once per scan. Initial cropping still prepares all cards before OCR starts. `ocr-batches.ts` orders each card's work and shared prerequisites without reading duplicate tasks again. `live-results.ts` queues result requests one at a time and retains unfinished jobs; `request-json.ts` retries temporary failures with backoff, cancellation, and a timeout. Successful cards retain their totals when other requests fail. Manual result retries insert only the recovered cards, preserving edits to existing cards. Older preparation responses without card groups still use one full-batch result request. Recalculation currently serializes the entire cards array, including its image fields. There is no database request and no server-side lookup by `scan_id`.
 
 ## 4. Core feature: model download and worker lifecycle
 

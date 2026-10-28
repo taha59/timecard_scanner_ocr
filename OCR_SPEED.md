@@ -279,3 +279,42 @@ requests, which overlap Reading time. The summary's `Final results wait` is only
 the remaining wait after OCR finishes; adding all results request durations to
 Reading would count overlapping work twice. Older preparation responses without
 card groups retain the previous batch behavior.
+
+
+## Live results request recovery — October 28, 2026
+
+A reported interruption after two or three cards exposed a failure-handling bug:
+the live queue called the scan AbortController on any result-request error. A
+single busy response or network failure stopped remaining OCR and hid valid
+cards' totals behind the global error state. The screenshot also showed a CORS
+error and `ERR_NETWORK_CHANGED`. Live probes confirmed correct allowed-origin
+CORS headers on the model endpoint, results preflight, and Flask validation
+errors; the original failed response's upstream/network cause is unverified.
+
+Result requests now retry temporary network failures, incomplete response bodies,
+timeouts, and HTTP 408/425/429/500/502/503/504 up to three attempts. Backoff uses
+Retry-After when exposed. Busy Flask responses include Retry-After: 1 with the
+existing strict allowed-origin CORS headers. No wildcard/proxy bypass is added.
+Per-attempt timeouts apply to recoverable metadata/results requests, not to the
+initial slow crop-preparation request. Cancellation interrupts requests/backoff.
+
+A failed result no longer aborts browser inference. Continuing connection failures
+pause result submissions to avoid repeatedly hitting an unavailable service.
+Recognized readings and normalized layouts remain in page memory, and the user
+can retry only unfinished cards without rerunning OCR or reuploading the photo.
+Successful totals remain visible. Later recovery preserves edits and the identity
+of an open crop dialog. Refresh, new photo/rotation, or a new scan clears pending
+jobs; this adds no database, saved server photo, or persistent browser scan cache.
+
+Actual local mobile-width Chromium tests use the real seven-card photo:
+
+- Medium: inject HTTP 429 and a network disconnect on the third card; all seven
+  cards complete automatically with one OCR run.
+- Small: inject three persistent network failures on the third card; two ready
+  cards retain their totals while the other five recognized results remain in
+  memory. Restore the connection and retry: all seven finish with zero additional
+  photo uploads or OCR runs, and an edit to a ready card remains intact.
+
+These tests verify failure recovery and final availability, not OCR accuracy or
+improved throughput. Neither model, task grouping, time parsing, recognition
+thresholds, nor thread policy changes in this fix.

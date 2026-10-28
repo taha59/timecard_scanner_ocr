@@ -92,7 +92,7 @@ def create_app(recognizer=None):
                 response.headers['Access-Control-Allow-Methods']='GET, POST, OPTIONS'
                 response.headers['Access-Control-Allow-Headers']='Authorization, Content-Type'
                 response.headers['Access-Control-Max-Age']='600'
-                response.headers['Access-Control-Expose-Headers']='Server-Timing, X-Response-Bytes'
+                response.headers['Access-Control-Expose-Headers']='Server-Timing, X-Response-Bytes, Retry-After'
         if not request.path.startswith('/api/'):
             response.headers['Cross-Origin-Opener-Policy']='same-origin'
             response.headers['Cross-Origin-Embedder-Policy']='require-corp'
@@ -104,7 +104,10 @@ def create_app(recognizer=None):
         @wraps(function)
         def wrapped(*args,**kwargs):
             if not image_slot.acquire(blocking=False):
-                return jsonify(error='Another photo is being processed. Please try again shortly.'),429
+                response=jsonify(error='Another photo is being processed. Please try again shortly.')
+                response.status_code=429
+                response.headers['Retry-After']='1'
+                return response
             try:return function(*args,**kwargs)
             finally:image_slot.release()
         return wrapped

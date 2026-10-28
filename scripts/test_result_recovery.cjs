@@ -1,0 +1,37 @@
+const assert=require('node:assert/strict'),vm=require('node:vm'),{buildSync}=require('../frontend/node_modules/esbuild');
+let calls=[],responses=[],delays=[];
+const context={Headers,Response,AbortController,DOMException,performance,setTimeout,clearTimeout,Date,console,
+ fetch:async(_url,options)=>{calls.push(options);const result=responses.shift();if(result instanceof Error)throw result;if(typeof result==='function')return result(options);if(!result)throw Error('Unexpected request');return result;}};
+vm.createContext(context);
+const code=buildSync({stdin:{contents:"export * from './frontend/src/request-json';export * from './frontend/src/live-results';",resolveDir:process.cwd()},bundle:true,write:false,format:'iife',globalName:'recovery',define:{'import.meta.env':'{}'},logLevel:'silent'}).outputFiles[0].text;
+vm.runInContext(code,context);const r=context.recovery;
+const response=(status,body,headers={})=>new Response(typeof body==='string'?body:JSON.stringify(body),{status,headers});
+const wait=async ms=>delays.push(ms);
+(async()=>{
+ responses=[response(429,'busy',{'Retry-After':'2'}),new TypeError('Failed to fetch'),response(200,{ok:true})];
+ assert.deepEqual(await r.requestJson('/api/device-result',{method:'POST',body:'unchanged'},undefined,{retry:true,wait}),{ok:true});
+ assert.equal(calls.length,3);assert.deepEqual(delays,[2000,2000]);assert.ok(calls.every(c=>c.body==='unchanged'));
+ calls=[];delays=[];responses=[response(502,'<html>proxy error</html>'),response(200,{ok:true})];
+ assert.deepEqual(await r.requestJson('/api/device-result',{},undefined,{retry:true,wait}),{ok:true});assert.equal(calls.length,2);
+ calls=[];responses=[response(400,{error:'Bad readings'})];
+ await assert.rejects(r.requestJson('/api/device-result',{},undefined,{retry:true,wait}),e=>e.status===400&&!e.retryable);assert.equal(calls.length,1);
+ calls=[];responses=[()=>new Promise((_,reject)=>calls.at(-1).signal.addEventListener('abort',()=>reject(new DOMException('Canceled','AbortError')),{once:true})),response(200,{ok:true})];
+ assert.deepEqual(await r.requestJson('/api/device-result',{},undefined,{retry:true,wait,timeoutMs:5}),{ok:true});assert.equal(calls.length,2);
+ calls=[];responses=[response(429,{error:'busy'})];const controller=new AbortController();
+ const pending=r.requestJson('/api/device-result',{signal:controller.signal},undefined,{retry:true,wait:async(_ms,signal)=>{controller.abort();signal.throwIfAborted();}});
+ await assert.rejects(pending,e=>e.name==='AbortError');assert.equal(calls.length,1);
+ let unavailable=true,submitted=[],published=[];
+ const queue=new r.LiveResults(async(job)=>{submitted.push(job.index);if(unavailable)throw new r.ApiRequestError('Connection lost',true);return {id:job.index,total:'8:00'};});
+ const signal=new AbortController().signal;
+ queue.enqueue({index:0},signal,(i,c)=>published.push(c));queue.enqueue({index:1},signal,(i,c)=>published.push(c));
+ await queue.drain();assert.equal(queue.pendingCount,2);assert.deepEqual(submitted,[0]);assert.equal(published.length,0);
+ unavailable=false;await queue.retry(signal,(i,c)=>published.push(c));
+ assert.deepEqual(submitted,[0,0,1]);assert.equal(queue.pendingCount,0);assert.equal(published.length,2);
+ let failedIndex=1;submitted=[];published=[];
+ const partial=new r.LiveResults(async job=>{submitted.push(job.index);if(job.index===failedIndex)throw new r.ApiRequestError('Invalid card',false,400);return {id:job.index};});
+ for(let index=0;index<3;index++)partial.enqueue({index},signal,(i,c)=>published.push(c));
+ await partial.drain();assert.equal(partial.pendingCount,1);assert.deepEqual(published.map(c=>c.id),[0,2]);
+ failedIndex=-1;await partial.retry(signal,(i,c)=>published.push(c));assert.equal(partial.pendingCount,0);assert.deepEqual(submitted,[0,1,2,1]);
+ const canceled=new AbortController();canceled.abort();partial.enqueue({index:3},canceled.signal,()=>assert.fail('canceled result published'));await partial.drain();assert.equal(partial.pendingCount,1);
+ console.log('PASS: busy/network/proxy/timeout retries are bounded and abortable; invalid requests are not retried; interrupted results are retained and resumed without redoing successful cards.');
+})().catch(e=>{console.error(e);process.exitCode=1;});

@@ -53,7 +53,7 @@ See [Flow diagrams](docs/FLOW_DIAGRAMS.md) for the architecture and step-by-step
 ## Main features
 
 - **Multiple employees:** One photo can contain several cards. Each employee has collapsible details.
-- **Live results:** Finished cards appear while the others are read. You can view crops immediately; editing unlocks when processing finishes or is canceled.
+- **Live results:** Finished cards appear while the others are read. Temporary request failures are retried. **Retry unfinished cards** recovers saved readings from the open tab without rerunning OCR. Editing unlocks when processing stops.
 - **Source images:** Day crops stay beside the time fields. Tap a crop to enlarge it or expand **View timecard** for the full card.
 - **Direct editing:** Enter Time in and Time out without changing a status or marking a row reviewed.
 - **Automatic totals:** Complete, valid time pairs count toward the total. Empty rows contribute nothing; incomplete or invalid rows are excluded and flagged. Notes and adjustments are not included.
@@ -75,6 +75,8 @@ Include AM/PM when correcting times, especially for overnight or long shifts. If
 | `frontend/src/device-ocr.ts` | Model download, browser cache, worker reuse, or cancellation |
 | `frontend/src/ocr.worker.ts` | Model inference and OCR text decoding |
 | `frontend/src/ocr-batches.ts` | Per-card task order, shared crops, and retry dependencies |
+| `frontend/src/live-results.ts` | Results queue and retryable readings kept in page memory |
+| `frontend/src/request-json.ts` | JSON requests, temporary-failure retries, and cancellation |
 | `frontend/src/ocr-policy.ts` | Crop retry and skip rules |
 | `backend/app.py` | API routes, uploads, access checks, or response validation |
 | `backend/extractor.py` | Card detection and crop boundaries |

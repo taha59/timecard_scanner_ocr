@@ -29,7 +29,7 @@ def test_timing_headers_are_readable_only_by_allowed_origin(monkeypatch):
     client=create_app().test_client()
     allowed=client.get('/api/access',headers={'Origin':'https://timecards.example','Authorization':'Bearer timing-test-token'})
     assert allowed.status_code==200
-    assert allowed.headers['Access-Control-Expose-Headers']=='Server-Timing, X-Response-Bytes'
+    assert allowed.headers['Access-Control-Expose-Headers']=='Server-Timing, X-Response-Bytes, Retry-After'
     assert 'handler' in durations(allowed)
     assert allowed.headers['Cache-Control']=='no-store'
     blocked=client.get('/api/access',headers={'Origin':'https://other.example','Authorization':'Bearer timing-test-token'})

@@ -77,3 +77,30 @@ def test_browser_isolation_headers_keep_cors_intact(production):
     api=production.get('/api/health',headers={'Origin':ORIGIN})
     assert api.headers['Access-Control-Allow-Origin']==ORIGIN
     assert api.headers['Cache-Control']=='no-store'
+
+
+def test_busy_results_expose_cors_and_retry_after(production,monkeypatch):
+    import threading
+    import backend.app as module
+    entered=threading.Event();release=threading.Event();completed=[]
+    original=module.detect_cards
+    def held(image):
+        entered.set()
+        assert release.wait(5)
+        return original(image)
+    monkeypatch.setattr(module,'detect_cards',held)
+    photo=(Path(__file__).parents[1]/'fixtures/october-single.jpg').read_bytes()
+    def prepare():
+        with production.application.test_client() as client:
+            completed.append(client.post('/api/scan',data={'device':'true','image':(BytesIO(photo),'card.jpg')}))
+    worker=threading.Thread(target=prepare);worker.start()
+    try:
+        assert entered.wait(3)
+        busy=production.post('/api/device-result',json={},headers={'Origin':ORIGIN})
+        assert busy.status_code==429
+        assert busy.headers['Retry-After']=='1'
+        assert busy.headers['Access-Control-Allow-Origin']==ORIGIN
+        assert 'Retry-After' in busy.headers['Access-Control-Expose-Headers']
+    finally:
+        release.set();worker.join(5)
+    assert completed and completed[0].status_code==200

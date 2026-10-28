@@ -56,17 +56,35 @@ const job={layouts:['layout0','layout1'],tasks:[{id:'a',image:'a'},{id:'b',image
  requests[5].resolve(response({cards:[card('STALE')],scan_id:'stale'}));
  await new Promise(r=>setTimeout(r,30));assert.equal(screen.queryByDisplayValue('STALE'),null);
  assert.equal(screen.getByRole('textbox',{name:'Kept Day 1 IN'}).disabled,false);
- // A failed first result request must not be hidden by cancellation errors
- // from already-queued later cards.
+ // One failed card must not stop later cards, hide valid totals, or require
+ // the model to run again when retrying its saved readings.
  await user.click(screen.getByRole('button',{name:'Scan on this device →'}));
  await waitFor(()=>assert.equal(requests.length,7));requests[6].resolve(response(job));
  await waitFor(()=>assert.equal(workers.length,2));const retry=workers[1];
  retry.send({initialized:true});retry.send({cardIndex:0,cardReadings:{a:{text:'9:00am',confidence:.79}}});
  retry.send({cardIndex:1,cardReadings:{b:{text:'5:00pm',confidence:.79}}});
- await waitFor(()=>assert.equal(requests.length,8));requests[7].resolve(response({error:'Card check failed'},500));
- await waitFor(()=>screen.getByText('Card check failed'));
- assert.equal(screen.getByRole('button',{name:'Scan on this device →'}).disabled,false);
- assert.equal(requests.length,8);
+ await waitFor(()=>assert.equal(requests.length,8));requests[7].resolve(response({error:'Card check failed'},400));
+ await waitFor(()=>assert.equal(requests.length,9));requests[8].resolve(response({cards:[card('Later')],scan_id:'later'}));
+ retry.send({readings:{a:{text:'9:00am',confidence:.79},b:{text:'5:00pm',confidence:.79}},stats:{loadMs:1,readMs:10,total:2,processed:2,skipped:0,threads:4}});
+ await waitFor(()=>screen.getByRole('button',{name:'Retry unfinished cards (1)'}));
+ assert.equal(screen.getByRole('textbox',{name:'Later Day 1 IN'}).disabled,false);
+ assert.ok(screen.getByText('8:00 · 8.00 h'));assert.equal(w.document.querySelector('.error'),null);
+ await user.clear(screen.getByRole('textbox',{name:'Card 2 employee name'}));
+ await user.type(screen.getByRole('textbox',{name:'Card 2 employee name'}),'Corrected');
+ await waitFor(()=>assert.equal(requests.length,10));
+ requests[9].resolve(response({cards:[{...card('Corrected'),id:'1'}]}));
+ await waitFor(()=>screen.getByRole('button',{name:'Retry unfinished cards (1)'}).disabled===false||assert.fail('still calculating'));
+ const sent=retry.sent;
+ await user.click(screen.getByRole('button',{name:'Retry unfinished cards (1)'}));
+ await waitFor(()=>assert.equal(requests.length,11));assert.equal(workers.length,2);assert.equal(retry.sent,sent);
+ assert.deepEqual(JSON.parse(requests[10].options.body).layouts,['layout0']);
+ await user.click(screen.getByAltText('Day 1 source crop').closest('button'));
+ requests[10].resolve(response({cards:[card('Recovered')],scan_id:'recovered'}));
+ await waitFor(()=>screen.getByRole('heading',{name:'2 cards to review'}));
+ assert.ok(screen.getByRole('heading',{name:'Corrected · Day 1'}));
+ assert.ok(screen.getByDisplayValue('Corrected'));assert.ok(screen.getByDisplayValue('Recovered'));
+ assert.equal(screen.queryByRole('button',{name:/Retry unfinished cards/}),null);
+ await user.click(screen.getByRole('button',{name:'Close ×'}));
  console.log('PASS: a completed card is viewable during remaining OCR, fields stay locked, later cards preserve open previews, finish unlocks editing, and cancel retains completed cards without accepting late results.');
  w.dispatchEvent(new w.Event('pagehide'));dom.window.close();
 })().catch(e=>{console.error(e);w.dispatchEvent(new w.Event('pagehide'));dom.window.close();process.exitCode=1;});

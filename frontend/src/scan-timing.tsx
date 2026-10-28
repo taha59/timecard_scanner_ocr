@@ -62,5 +62,5 @@ export function ResultsTiming({timing,live=false}:{timing:RequestTiming;live?:bo
   <dt>Rebuild layouts</dt><dd>{seconds(timing.server.layouts)}</dd>
   <dt>Reconstruct entries and source images</dt><dd>{seconds(timing.server.reconstruct)}</dd>
   <dt>Calculate totals and build results</dt><dd>{seconds(timing.server.response_build)}</dd>
- </dl><p className="quiet">{live?'These are summed per-card requests, which run while other cards are being read and overlap Reading time. ':''}Server values overlap the results request time; do not add them again.</p></div>;
+ </dl><p className="quiet">{live?'These sum successful per-card requests, which run while other cards are being read and overlap Reading time. Failed attempts and retry waits are included in total elapsed scan time. ':''}Server values overlap the results request time; do not add them again.</p></div>;
 }
