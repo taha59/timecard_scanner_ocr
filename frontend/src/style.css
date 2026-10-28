@@ -26,3 +26,5 @@
 .preparation-timing h3{font-size:15px;margin:16px 0 10px}.preparation-timing dl{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px 16px;max-width:640px;font-size:13px}.preparation-timing dt{min-width:0}.preparation-timing dd{margin:0;font-variant-numeric:tabular-nums}.preparation-timing p{font-size:12px;max-width:640px}
 
 .device-options>label{display:grid;gap:6px;margin-bottom:12px;max-width:420px}.device-options>label select{width:100%;min-width:0}
+
+.debug-toggle{display:flex;justify-content:center;align-items:center;gap:8px;margin:16px 0 10px;cursor:pointer;color:#63756a;font-size:12px}.debug-toggle input{width:16px;height:16px;padding:0;accent-color:#255a43}

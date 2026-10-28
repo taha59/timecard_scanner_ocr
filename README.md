@@ -60,7 +60,7 @@ See [Flow diagrams](docs/FLOW_DIAGRAMS.md) for the architecture and step-by-step
 - **Written-total comparison:** The handwritten total is a cross-check; it never changes calculated hours.
 - **Manual entry:** **Extract crops for manual entry** provides the images without running OCR.
 - **Model comparison:** Medium is the default. Select PP-OCRv6 Small to test faster recognition; both models are cached separately. Small can miss more handwriting.
-- **Progress and timing:** A progress bar shows recognition progress. **Scan timing** shows processing durations and the actual thread count.
+- **Progress and timing:** A progress bar shows recognition progress. Timing breakdowns are hidden by default; turn on **Debug statistics** at the bottom of the page to see them. The browser remembers your choice.
 - **Cancellation:** Users can stop a scan and retry.
 
 Include AM/PM when correcting times, especially for overnight or long shifts. If either time lacks AM/PM, the calculator uses a 12-hour interpretation and shows a warning.
@@ -75,6 +75,7 @@ Include AM/PM when correcting times, especially for overnight or long shifts. If
 | `frontend/src/device-ocr.ts` | Model download, browser cache, worker reuse, or cancellation |
 | `frontend/src/ocr.worker.ts` | Model inference and OCR text decoding |
 | `frontend/src/ocr-batches.ts` | Per-card task order, shared crops, and retry dependencies |
+| `frontend/src/debug-settings.ts` | Debug visibility preference and optional build default |
 | `frontend/src/live-results.ts` | Results queue and retryable readings kept in page memory |
 | `frontend/src/request-json.ts` | JSON requests, temporary-failure retries, and cancellation |
 | `frontend/src/ocr-policy.ts` | Crop retry and skip rules |

@@ -42,7 +42,13 @@ const job={layouts:['layout0','layout1'],tasks:[{id:'a',image:'a'},{id:'b',image
  await waitFor(()=>assert.equal(screen.getByRole('textbox',{name:'First Day 1 IN'}).disabled,false));
  assert.equal(screen.queryByRole('link',{name:/ready timecards/}),null);
  assert.equal(requests.length,3); // No repeated full-batch result request.
+ assert.equal(screen.queryByText(/Total .*Final results wait/),null);
+ await user.click(screen.getByRole('checkbox',{name:'Debug statistics'}));
  assert.match(screen.getByText(/Total .*Final results wait/).textContent,/Final results wait/);
+ assert.ok(screen.getByText('Preparation breakdown'));
+ assert.ok(screen.getByText('Results check breakdown'));
+ await user.click(screen.getByRole('checkbox',{name:'Debug statistics'}));
+ assert.equal(screen.queryByText('Preparation breakdown'),null);
  // Cancellation keeps completed cards and rejects later responses from this scan.
  await user.click(screen.getByRole('button',{name:'Scan on this device →'}));
  await waitFor(()=>assert.equal(requests.length,4));requests[3].resolve(response(job));

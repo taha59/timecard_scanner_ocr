@@ -19,11 +19,14 @@ Render uses its settings at runtime and restarts/redeploys when they change.
 |---|---|---|
 | Vercel | `VITE_API_BASE_URL` | `https://YOUR-API.onrender.com` (no `/api` suffix) |
 | Vercel | `VITE_ENABLE_SERVER_OCR` | `false` |
+| Vercel | `VITE_DEBUG_STATS` | `false` (optional; defaults to off) |
 | Render | `APP_ENV` | `production` |
 | Render | `ALLOWED_ORIGINS` | `https://YOUR-APP.vercel.app` |
 | Render | `ENABLE_SERVER_OCR` | `false` |
 
 The app opens directly without a password. The backend continues to enforce the exact browser-origin allowlist.
+
+The **Debug statistics** checkbox at the bottom of the app changes timing visibility without a deployment and remembers the choice in that browser. Set `VITE_DEBUG_STATS=true` to enable it by default for testing; an explicitly saved browser preference overrides that default. Measurements remain available for the current scan even when hidden.
 
 ## 1. Create the frontend project on Vercel
 

@@ -38,7 +38,7 @@ flowchart LR
 
 **Source:** `frontend/src/main.tsx`, `api.ts`, `device-ocr.ts`, `ocr.worker.ts`; `backend/app.py`; `Dockerfile`; `frontend/vercel.json`.
 
-React memory contains the current file, preview, cards, and edits. Only model weights are deliberately persisted by the app in the browser. Flask processes uploaded images in memory. Optional server OCR is not an automatic fallback for browser failures.
+React memory contains the current file, preview, cards, and edits. Model weights are cached in the browser; a separate localStorage boolean remembers the Debug statistics preference. Flask processes uploaded images in memory. Optional server OCR is not an automatic fallback for browser failures.
 
 ## 2. User application flow
 
