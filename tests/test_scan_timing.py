@@ -42,3 +42,16 @@ def test_invalid_scan_still_has_handler_timing():
     response=client.post('/api/scan',data={'device':'true'})
     assert response.status_code==400
     assert durations(response)['handler']>=0
+
+
+def test_device_results_have_processing_breakdown():
+    client=create_app().test_client()
+    photo=(Path(__file__).parents[1]/'fixtures/october-single.jpg').read_bytes()
+    prepared=client.post('/api/scan',data={'image':(BytesIO(photo),'card.jpg'),'device':'true'}).json
+    response=client.post('/api/device-result',json={'layouts':prepared['layouts'],'readings':{t['id']:{'text':'','confidence':0} for t in prepared['tasks']}})
+    assert response.status_code==200
+    timing=durations(response)
+    assert {'request_read','layouts','reconstruct','response_build','compute','handler'}==set(timing)
+    assert timing['layouts']+timing['reconstruct']+timing['response_build']<=timing['compute']+.01
+    assert int(response.headers['X-Response-Bytes'])==len(response.data)
+    assert client.get('/api/health').json['ocr_loaded'] is False

@@ -1,3 +1,4 @@
+import type {DeviceOcrStats} from './device-ocr';
 export type RequestTiming={untilResponseMs:number;downloadMs:number;jsonParseMs:number;responseBytes:number|null;server:Record<string,number>};
 
 export function parseServerTiming(header:string|null){
@@ -32,4 +33,28 @@ export function PreparationTiming({timing}:{timing:RequestTiming}){
   <dt>Crop creation</dt><dd>{seconds(timing.server.crops)}</dd>
   <dt>Build response</dt><dd>{seconds(timing.server.response_build)}</dd>
  </dl><p className="quiet">Until response starts includes upload, waiting, and server work. Download includes reading and decoding the response body. Server processing starts after the upload is read; server request read can include waiting for upload bytes. Server times are already included in preparation, not extra time.</p></div>;
+}
+
+export function ReadingTiming({stats}:{stats:DeviceOcrStats}){
+ if(stats.inferenceMs===undefined)return null;
+ return <div className="preparation-timing"><h3>Reading breakdown</h3><dl>
+  <dt>Decode crop images</dt><dd>{seconds(stats.imageDecodeMs)}</dd>
+  <dt>Prepare model inputs</dt><dd>{seconds(stats.inputPrepMs)}</dd>
+  <dt>Model inference</dt><dd>{seconds(stats.inferenceMs)}</dd>
+  <dt>Decode recognized text</dt><dd>{seconds(stats.textDecodeMs)}</dd>
+  <dt>Release tensors</dt><dd>{seconds(stats.cleanupMs)}</dd>
+  <dt>Other worker work</dt><dd>{seconds(stats.otherMs)}</dd>
+ </dl><p className="quiet">These stages are included in Reading time. They measure elapsed time, including any device scheduling delays.</p></div>;
+}
+
+export function ResultsTiming({timing}:{timing:RequestTiming}){
+ return <div className="preparation-timing"><h3>Results check breakdown</h3><dl>
+  <dt>Until results response starts</dt><dd>{seconds(timing.untilResponseMs)}</dd>
+  <dt>Download results</dt><dd>{seconds(timing.downloadMs)}</dd>
+  <dt>Parse results JSON</dt><dd>{seconds(timing.jsonParseMs)}</dd>
+  <dt>Results server processing</dt><dd>{seconds(timing.server.compute)}</dd>
+  <dt>Rebuild layouts</dt><dd>{seconds(timing.server.layouts)}</dd>
+  <dt>Reconstruct entries and source images</dt><dd>{seconds(timing.server.reconstruct)}</dd>
+  <dt>Calculate totals and build results</dt><dd>{seconds(timing.server.response_build)}</dd>
+ </dl><p className="quiet">Server values overlap the results request time; do not add them again.</p></div>;
 }

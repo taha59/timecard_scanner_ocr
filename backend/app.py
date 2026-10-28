@@ -196,7 +196,11 @@ def create_app(recognizer=None):
         from .device_ocr import DeviceRecognizer,unpack_layouts
         body=request.get_json()
         if not isinstance(body,dict):raise ValueError('Expected device readings')
+        g.stage_timings.append(('request_read',(perf_counter()-g.request_started)*1000))
+        g.compute_started=perf_counter()
+        stage_started=perf_counter()
         layouts=unpack_layouts(body.get('layouts'))
+        g.stage_timings.append(('layouts',(perf_counter()-stage_started)*1000))
         readings=body.get('readings')
         if not isinstance(readings,dict) or len(readings)>1200:raise ValueError('Invalid device readings')
         for value in readings.values():
@@ -207,8 +211,13 @@ def create_app(recognizer=None):
                 raise ValueError('Skipped crops must not contain invented readings')
             score=value.get('confidence')
             if isinstance(score,bool) or not isinstance(score,(int,float)) or not 0<=score<=1:raise ValueError('Invalid device confidence')
+        stage_started=perf_counter()
         cards=extract(None,DeviceRecognizer(readings),layouts=layouts)
-        return jsonify(scan_id=uuid4().hex,cards=calculate_cards(cards,punch_only=True),manual=False,message='Device OCR complete. Review every entry. Photos were processed in server memory only; no photos or scans were saved.')
+        g.stage_timings.append(('reconstruct',(perf_counter()-stage_started)*1000))
+        stage_started=perf_counter()
+        response=jsonify(scan_id=uuid4().hex,cards=calculate_cards(cards,punch_only=True),manual=False,message='Device OCR complete. Review every entry. Photos were processed in server memory only; no photos or scans were saved.')
+        g.stage_timings.append(('response_build',(perf_counter()-stage_started)*1000))
+        return response
 
     dist=Path(__file__).parents[1]/'frontend'/'dist'
     @app.get('/')

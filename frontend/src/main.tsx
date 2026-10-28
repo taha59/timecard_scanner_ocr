@@ -1,4 +1,4 @@
-import {PreparationTiming,readTimedJson,type RequestTiming} from './scan-timing';
+import {PreparationTiming,ReadingTiming,ResultsTiming,readTimedJson,type RequestTiming} from './scan-timing';
 import {ScanProgress} from './scan-progress';
 import React,{useEffect,useRef,useState} from 'react';
 import {createRoot} from 'react-dom/client';
@@ -26,6 +26,8 @@ function App(){
  const [manifest,setManifest]=useState<ModelManifest|null>(null),[modelReady,setModelReady]=useState(false),[modelBusy,setModelBusy]=useState(false),[progress,setProgress]=useState('');
  const [scanTiming,setScanTiming]=useState('');
  const [preparationTiming,setPreparationTiming]=useState<RequestTiming|null>(null);
+ const [readingTiming,setReadingTiming]=useState<DeviceOcrStats|null>(null);
+ const [resultsTiming,setResultsTiming]=useState<RequestTiming|null>(null);
  const supported=deviceSupported();
  useEffect(()=>{if(!supported)return;let canceled=false;apiFetch('/api/device-model').then(r=>{if(!r.ok)throw new Error('Model information unavailable');return r.json();}).then(async m=>{const ready=await modelPresent(m);if(!canceled){setManifest(m);setModelReady(ready);}}).catch(()=>{if(!canceled)setManifest(null);});return()=>{canceled=true;};},[supported]);
  useEffect(()=>{if(window.isSecureContext&&'serviceWorker' in navigator)navigator.serviceWorker.register('/sw.js').catch(()=>{});},[]);
@@ -73,10 +75,10 @@ function App(){
   return()=>{cancelled=true;image.onload=null;image.onerror=null;URL.revokeObjectURL(originalUrl);if(rotatedUrl)URL.revokeObjectURL(rotatedUrl);};
  },[file,rotation]);
  useEffect(()=>()=>{if(timer.current)clearTimeout(timer.current);abort.current?.abort();},[]);
- function accept(f:File){if(!f.type.startsWith('image/')){setError('Choose an image file.');return;}setScanTiming('');setPreparationTiming(null);setFile(f);setRotation(0);setPreviewBusy(false);setMessage('');setError('');setCards([]);setExpandedCards({});setScanId('');revision.current++;abort.current?.abort();if(timer.current)clearTimeout(timer.current);setPending(false);}
+ function accept(f:File){if(!f.type.startsWith('image/')){setError('Choose an image file.');return;}setScanTiming('');setPreparationTiming(null);setReadingTiming(null);setResultsTiming(null);setFile(f);setRotation(0);setPreviewBusy(false);setMessage('');setError('');setCards([]);setExpandedCards({});setScanId('');revision.current++;abort.current?.abort();if(timer.current)clearTimeout(timer.current);setPending(false);}
  function rotateSource(delta:number){
   if(!file||busy||previewBusy)return;
-  setScanTiming('');setPreparationTiming(null);setRotation(previous=>(previous+delta+360)%360);setPreviewBusy(true);
+  setScanTiming('');setPreparationTiming(null);setReadingTiming(null);setResultsTiming(null);setRotation(previous=>(previous+delta+360)%360);setPreviewBusy(true);
   setError('');setMessage('');setCards([]);setExpandedCards({});setScanId('');setInspect(null);
   revision.current++;abort.current?.abort();if(timer.current)clearTimeout(timer.current);setPending(false);
  }
@@ -90,7 +92,7 @@ function App(){
   finally{if(rev===revision.current){setBusy(false);setModelBusy(false);setProgress('');abort.current=null;}}
  }
  async function forgetModel(){try{await removeModel();setModelReady(false);setMessage('Downloaded model removed from this browser.');}catch{setError('Could not remove the saved model. Try again.');}}
- async function scan(manual=false){if(busy||!file||previewBusy||!preview||(!manual&&ocrMode==='device'&&!modelReady))return;setCards([]);setExpandedCards({});setInspect(null);setScanId('');setScanTiming('');setPreparationTiming(null);setProgress('');setBusy(true);setError('');setMessage('');const rev=++revision.current;
+ async function scan(manual=false){if(busy||!file||previewBusy||!preview||(!manual&&ocrMode==='device'&&!modelReady))return;setCards([]);setExpandedCards({});setInspect(null);setScanId('');setScanTiming('');setPreparationTiming(null);setReadingTiming(null);setResultsTiming(null);setProgress('');setBusy(true);setError('');setMessage('');const rev=++revision.current;
   abort.current?.abort();if(timer.current)clearTimeout(timer.current);setPending(false);
   const controller=new AbortController();abort.current=controller;
   const form=new FormData();form.append('image',file);form.append('rotation',String(rotation));if(manual)form.append('manual','true');
@@ -103,10 +105,10 @@ function App(){
     form.append('device','true');setProgress('Preparing crops on the server…');
     const prepared=await api('/api/scan',{method:'POST',body:form,signal:controller.signal},timing=>{if(rev===revision.current)setPreparationTiming(timing);});
     const cropped=performance.now();
-    const readings=await recognizeOnDevice(manifest,prepared.tasks,controller.signal,text=>{if(rev===revision.current)setProgress(text);},stats=>{deviceStats=stats;});
+    const readings=await recognizeOnDevice(manifest,prepared.tasks,controller.signal,text=>{if(rev===revision.current)setProgress(text);},stats=>{deviceStats=stats;if(rev===revision.current)setReadingTiming(stats);});
     const recognized=performance.now();
     controller.signal.throwIfAborted();setProgress('Checking entries and calculating totals…');
-    data=await api('/api/device-result',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({layouts:prepared.layouts,readings}),signal:controller.signal});
+    data=await api('/api/device-result',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({layouts:prepared.layouts,readings}),signal:controller.signal},timing=>{if(rev===revision.current)setResultsTiming(timing);});
     if(rev===revision.current&&deviceStats){const stats=deviceStats as DeviceOcrStats;setScanTiming(`Total ${((performance.now()-started)/1000).toFixed(2)}s · Crop preparation ${((cropped-started)/1000).toFixed(2)}s · Model startup ${(stats.loadMs/1000).toFixed(2)}s${stats.reused?' (reused)':''} · Reading ${(stats.readMs/1000).toFixed(2)}s${stats.threads?` (${stats.threads} thread${stats.threads===1?'':'s'})`:''} · Results check ${((performance.now()-recognized)/1000).toFixed(2)}s · Browser reports ${navigator.hardwareConcurrency||1} CPU threads · ${stats.processed}/${stats.total} crops read · ${stats.skipped} fallback crops skipped`);}
    }else data=await api('/api/scan',{method:'POST',body:form,signal:controller.signal});
    if(rev!==revision.current)return;setCards(data.cards);setExpandedCards({});setScanId(data.scan_id);setMessage(data.message);
@@ -134,7 +136,7 @@ function App(){
  <details><summary>Add to your Home Screen</summary><p>iPhone: open in Safari, tap Share, then Add to Home Screen. Android: open the Chrome menu and choose Add to Home screen or Install app. HTTPS is required. The saved model can still be removed by browser storage cleanup.</p></details>
  </div>}
  <div className="actions"><button className="primary" onClick={()=>scan()} disabled={!file||busy||previewBusy||!preview||(ocrMode==='device'&&(!supported||!modelReady))}>{busy?(modelBusy?'Downloading model…':'Processing photo…'):ocrMode==='device'?'Scan on this device →':'Scan with local OCR →'}</button><button onClick={()=>scan(true)} disabled={!file||busy||previewBusy||!preview}>Extract crops for manual entry</button>{busy&&<button type="button" onClick={cancelScan}>Cancel processing</button>}<span>Only complete time pairs contribute to totals.</span></div>{progress&&<ScanProgress message={progress}/>}</section>
- {(scanTiming||preparationTiming)&&<details className="scan-timing" open><summary>Scan timing</summary>{scanTiming&&<p>{scanTiming}</p>}{preparationTiming&&<PreparationTiming timing={preparationTiming}/>}</details>}
+ {(scanTiming||preparationTiming)&&<details className="scan-timing" open><summary>Scan timing</summary>{scanTiming&&<p>{scanTiming}</p>}{preparationTiming&&<PreparationTiming timing={preparationTiming}/>} {readingTiming&&<ReadingTiming stats={readingTiming}/>} {resultsTiming&&<ResultsTiming timing={resultsTiming}/>}</details>}
  <div role="alert">{error&&<p className="error">{error}</p>}</div><div aria-live="polite">{message&&<p className="notice">{message}</p>}</div>
  {cards.length>0&&<><div className="review-heading"><div><div className="eyebrow">02 / VERIFY & CORRECT</div><h2>{cards.length} cards to review</h2><p>Check the times against the source. Clear both fields to exclude a day.</p></div><span className={pending?'pill pending':'pill'} role="status">{pending?'Recalculating…':error?'Calculation requires attention':'Calculated by Python'}</span></div>
  {cards.map((card,ci)=>{const expanded=expandedCards[card.id]??ci===0;return <section className="card" key={`${scanId}-${card.id}`}><div className="card-heading"><span className="card-index">{String(ci+1).padStart(2,'0')}</span><label className="name-label">Employee name<input aria-label={`Card ${ci+1} employee name`} value={card.name} placeholder="Enter employee name" onChange={e=>editCard(ci,{name:e.target.value})}/></label><button className="card-toggle" aria-label={`${expanded?'Collapse':'Expand'} employee ${ci+1}`} aria-expanded={expanded} aria-controls={`card-body-${card.id}`} onClick={()=>setExpandedCards(previous=>({...previous,[card.id]:!expanded}))}><span aria-hidden="true">{expanded?'▾':'▸'}</span> {expanded?'Hide details':'Show details'}</button></div>

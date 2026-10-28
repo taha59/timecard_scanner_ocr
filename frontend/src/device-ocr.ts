@@ -1,7 +1,7 @@
 import {apiFetch} from './api';
 import type {CropReading,CropTask} from './ocr-policy';
 export type ModelManifest={version:string;bytes:number;sha256:string;url:string;characters:string[]};
-export type DeviceOcrStats={loadMs:number;readMs:number;total:number;processed:number;skipped:number;reused:boolean;threads?:number};
+export type DeviceOcrStats={loadMs:number;readMs:number;total:number;processed:number;skipped:number;reused:boolean;threads?:number;imageDecodeMs?:number;inputPrepMs?:number;inferenceMs?:number;textDecodeMs?:number;cleanupMs?:number;otherMs?:number};
 export type DeviceTask=CropTask;
 export const MODEL_CACHE='timecard-device-model-v1';
 const modelKey=(m:ModelManifest)=>`/device-model-cache/${m.version}/${m.sha256}`;
