@@ -1,4 +1,5 @@
 """Prepare recognition tasks and combine device readings without server inference."""
+from dataclasses import replace
 import hashlib
 import re
 from PIL import Image
@@ -7,15 +8,17 @@ from .recognizer import Reading
 from .ocr_common import clock_text,tentative_clock_text
 from .extractor import png_data, clean_ink, tight_white, photo_punch_crops, punch_crops, focused_punch_crops, label_edge_punch_crops
 from .rapid_recognizer import choose_reading
+from .crop_policy import LEGACY_CROPS
 
 # Task images prioritize fast, lossless encoding. Full cards and review images
 # keep the normal compression level so later request payloads do not grow.
 DEVICE_PNG_COMPRESSION=1
 
 class DeviceRecognizer:
-    def __init__(self, readings=None):
+    def __init__(self, readings=None,crop_policy=LEGACY_CROPS):
         self.tasks={}
         self.readings=readings
+        self.crop_policy=crop_policy
         self._prepared_punches={}
         self.card_tasks=[]
         self._card_index=None
@@ -32,7 +35,7 @@ class DeviceRecognizer:
             for index,layout in enumerate(layouts):
                 self.begin_card(index)
                 for day,cell in enumerate(layout.cells):
-                    self.read_punches(layout,day,punch_crops(clean_ink(cell)))
+                    self.read_punches(layout,day,punch_crops(clean_ink(cell),self.crop_policy))
 
     @staticmethod
     def _key(image,mode):
@@ -61,11 +64,19 @@ class DeviceRecognizer:
         if self.readings is None and cache_key in self._prepared_punches:
             return self._prepared_punches[cache_key]
         ink=clean_ink(layout.cells[day])
-        originals=photo_punch_crops(layout.cells[day],ink)
-        focused=focused_punch_crops(layout.cells[day],ink)
-        edges=label_edge_punch_crops(layout,day)
+        originals=photo_punch_crops(layout.cells[day],ink,self.crop_policy)
+        focused=focused_punch_crops(layout.cells[day],ink,self.crop_policy)
+        # Retain photographic strokes outside the tight ink bounds, but only
+        # use this extra view for missing clocks or a clipped leading 1.
+        wide=(photo_punch_crops(layout.cells[day],ink,replace(self.crop_policy,
+              preserve_original_width=True,original_out_limit=.52))
+              if self.crop_policy.version>=2 else [None,None])
+        edges=label_edge_punch_crops(layout,day,self.crop_policy)
         result=[];compact_repairs=[]
-        for original,cleaned,focus,edge in zip(originals,punches,focused,edges):
+        for original,cleaned,focus,edge,wide_image in zip(originals,punches,focused,edges,wide):
+            wide_id=self._key(wide_image,'time') if wide_image is not None else None
+            wide_reading=(self.read(wide_image,'time',required=False) if wide_id is not None and
+                          (self.readings is None or wide_id in self.readings) else Reading('',0))
             edge_id=self._key(edge,'time') if edge is not None else None
             edge_reading=(self.read(edge,'time',required=False) if edge_id is not None and
                           (self.readings is None or edge_id in self.readings) else Reading('',0))
@@ -79,6 +90,11 @@ class DeviceRecognizer:
                 if edge_id is not None and edge_id not in {original_id,cleaned_id,focused_id}:
                     self.tasks[edge_id]['edge_recovery']=True
                     groups=self.tasks[edge_id].setdefault('recover_for',[])
+                    group=[original_id,cleaned_id,focused_id]
+                    if group not in groups:groups.append(group)
+                if wide_id is not None and wide_id not in {original_id,cleaned_id,focused_id}:
+                    self.tasks[wide_id]['edge_recovery']=True
+                    groups=self.tasks[wide_id].setdefault('recover_for',[])
                     group=[original_id,cleaned_id,focused_id]
                     if group not in groups:groups.append(group)
                 if cleaned_id!=original_id:
@@ -110,9 +126,16 @@ class DeviceRecognizer:
             groups=[('original_punch',[{'text':first.raw_text,'confidence':first.confidence}]),
                                     ('cleaned_punch',[{'text':second.raw_text,'confidence':second.confidence}]),
                                     ('focused_punch',[{'text':third.raw_text,'confidence':third.confidence}])]
-            reading=choose_reading(([edge_group]+groups) if edge_preferred else groups)
+            wide_clock=clock_text(wide_reading.raw_text)
+            wide_match=re.fullmatch(r'1([012])[:.]([0-5][0-9])(am|pm)?',wide_clock)
+            wide_restore=bool(old_clock and wide_match and old_clock.group(1,2)==wide_match.group(1,2)
+                              and (not old_clock.group(3) or old_clock.group(3)==wide_match.group(3)))
+            wide_preferred=bool(wide_clock and not edge_preferred and (not normal or wide_restore))
+            wide_group=('wide_original_punch',[{'text':wide_reading.raw_text,'confidence':wide_reading.confidence}])
+            preferred=([edge_group] if edge_preferred else [wide_group] if wide_preferred else [])
+            reading=choose_reading(preferred+groups)
             ordinary=bool(clock_text(first.raw_text) or clock_text(second.raw_text))
-            if reading.text and (not ordinary or edge_preferred):reading.recovered=True
+            if reading.text and (not ordinary or edge_preferred or wide_preferred):reading.recovered=True
             compact_repair=False
             if not reading.text and self.readings is not None:
                 candidates=[(source,value,tentative_clock_text(value.raw_text)) for source,value in

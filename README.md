@@ -44,7 +44,7 @@ There is no database. The current scan lives in page memory; downloaded model we
 
 1. **Prepare:** The user downloads the OCR model once, chooses a photo, and optionally rotates it in 90-degree steps.
 2. **Crop:** The frontend sends the photo to `/api/scan`. Flask finds the printed green strips and separates each card into seven day rows and individual time crops.
-3. **Recognize:** A browser worker runs OCR on those crops. It tries alternative crops when a time is unclear.
+3. **Recognize:** A browser worker runs OCR on those crops. It tries alternative crops when a time is unclear. Row boundaries ignore ink carried over from the previous day; a wider photo fallback can recover a missing time or clipped leading `1`.
 4. **Calculate:** The frontend sends the readings to `/api/device-result`. Flask cleans up the text, validates the times, and calculates hours.
 5. **Correct:** The user edits times beside their source crops. After a 350 ms pause, `/api/calculate` returns updated totals.
 
@@ -82,6 +82,7 @@ Shifts must finish within the same day, no later than 11:59 PM. Conflicting time
 | `frontend/src/ocr-policy.ts` | Crop retry and skip rules |
 | `backend/app.py` | API routes, uploads, access checks, or response validation |
 | `backend/extractor.py` | Card detection and crop boundaries |
+| `backend/crop_policy.py` | Versioned crop geometry shared by preparation and results replay |
 | `backend/device_ocr.py` | Preparing crop tasks and combining returned readings |
 | `backend/ocr_common.py` | Cleaning messy OCR strings into time candidates |
 | `backend/time_inference.py` | Editable AM/PM evidence, preferences, and same-day policy |

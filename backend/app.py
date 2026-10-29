@@ -16,6 +16,7 @@ from .calculator import calculate_cards,STATUSES
 from .extractor import extract,detect_cards
 from .recognizer import create_recognizer,UnavailableRecognizer
 from .time_inference import DEFAULT_POLICY
+from .crop_policy import crop_policy
 
 
 class MemoryUploadRequest(Request):
@@ -170,7 +171,8 @@ def create_app(recognizer=None):
             layouts=detect_cards(image)
             g.stage_timings.append(('grid',(perf_counter()-stage_started)*1000))
             if len(layouts)>20:raise ValueError('Use at most 20 cards per photo')
-            collector=DeviceRecognizer()
+            policy=crop_policy(request.form.get('crop_version'))
+            collector=DeviceRecognizer(crop_policy=policy)
             stage_started=perf_counter()
             extract(None,collector,layouts=layouts,include_images=False,include_notes=False)
             g.stage_timings.append(('crops',(perf_counter()-stage_started)*1000))
@@ -178,6 +180,7 @@ def create_app(recognizer=None):
             payload={'layouts':pack_layouts(layouts),'tasks':list(collector.tasks.values())}
             if request.form.get('live')=='true':
                 payload['card_tasks']=[list(keys) for keys in collector.card_tasks]
+            if request.form.get('crop_version') is not None:payload['crop_version']=policy.version
             response=jsonify(payload)
             g.stage_timings.append(('response_build',(perf_counter()-stage_started)*1000))
             return response
@@ -218,7 +221,7 @@ def create_app(recognizer=None):
         layouts=unpack_layouts(body.get('layouts'))
         g.stage_timings.append(('layouts',(perf_counter()-stage_started)*1000))
         readings=body.get('readings')
-        if not isinstance(readings,dict) or len(readings)>1200:raise ValueError('Invalid device readings')
+        if not isinstance(readings,dict) or len(readings)>1600:raise ValueError('Invalid device readings')
         for value in readings.values():
             if not isinstance(value,dict) or not isinstance(value.get('text'),str) or len(value['text'])>500:raise ValueError('Invalid device text')
             if value.get('skipped_reason') not in (None,'original_valid','standard_valid'):
@@ -228,7 +231,8 @@ def create_app(recognizer=None):
             score=value.get('confidence')
             if isinstance(score,bool) or not isinstance(score,(int,float)) or not 0<=score<=1:raise ValueError('Invalid device confidence')
         stage_started=perf_counter()
-        cards=extract(None,DeviceRecognizer(readings),layouts=layouts,include_notes=False,include_auxiliary_images=False)
+        policy=crop_policy(body.get('crop_version'))
+        cards=extract(None,DeviceRecognizer(readings,crop_policy=policy),layouts=layouts,include_notes=False,include_auxiliary_images=False)
         g.stage_timings.append(('reconstruct',(perf_counter()-stage_started)*1000))
         stage_started=perf_counter()
         response=jsonify(scan_id=uuid4().hex,cards=calculate_cards(cards,punch_only=True,time_policy=time_policy,use_ocr_evidence=True),manual=False,message='Device OCR complete. Review every entry. Photos were processed in server memory only; no photos or scans were saved.')
