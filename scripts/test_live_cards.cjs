@@ -14,12 +14,12 @@ const {within,waitFor}=require('../frontend/node_modules/@testing-library/dom');
 const user=require('../frontend/node_modules/@testing-library/user-event').default.setup({document:w.document});const screen=within(w.document.body);
 const amount={hm:'8:00',decimal:'8.00',minutes:480};
 function card(name){return {id:'0',name,image:'data:image/png;base64,crop',written_total:'',days:Array.from({length:7},(_,i)=>({...(i===0?{time_inference:{in:{original:'9:00',value:'9:00am',suffix:'am',source:'schedule'},out:{original:'5:00',value:'5:00pm',suffix:'pm',source:'partial_suffix'}}}:{}),label:`Day ${i+1}`,status:'worked',in:'9:00am',out:'5:00pm',adjustment_hours:'0',adjustment_confirmed:false,reviewed:false,note:'',image:'data:image/png;base64,crop',note_image:'',punch_images:[],computed:amount,flags:[]})),totals:{regular:amount,complete:true},cross_check:{message:null,candidates:[]}};}
-const job={crop_version:2,layouts:['layout0','layout1'],tasks:[{id:'a',image:'a'},{id:'b',image:'b'}],card_tasks:[['a'],['b']]};
+const job={layouts:['layout0','layout1'],tasks:[{id:'a',image:'a'},{id:'b',image:'b'}],card_tasks:[['a'],['b']]};
 (async()=>{
  await waitFor(()=>screen.getByText('PaddleOCR PP-OCRv6 Medium ready on this device'));
  await user.upload(w.document.querySelector('input[type=file]'),new w.File(['real photo supplied by browser tests'],'cards.jpg',{type:'image/jpeg'}));
  await user.click(screen.getByRole('button',{name:'Scan on this device →'}));
- await waitFor(()=>assert.equal(requests.length,1));assert.equal(requests[0].options.body.get('live'),'true');assert.equal(requests[0].options.body.get('crop_version'),'2');requests[0].resolve(response(job));
+ await waitFor(()=>assert.equal(requests.length,1));assert.equal(requests[0].options.body.get('live'),'true');requests[0].resolve(response(job));
  await waitFor(()=>assert.equal(workers.length,1));const worker=workers[0];
  assert.deepEqual(Array.from(worker.sent.cardTasks[0]),['a']);
  worker.send({initialized:true});worker.send({cardIndex:0,cardReadings:{a:{text:'9:00am',confidence:.79}}});
@@ -85,7 +85,6 @@ const job={crop_version:2,layouts:['layout0','layout1'],tasks:[{id:'a',image:'a'
  await user.click(screen.getByRole('button',{name:'Retry unfinished cards (1)'}));
  await waitFor(()=>assert.equal(requests.length,11));assert.equal(workers.length,2);assert.equal(retry.sent,sent);
  assert.deepEqual(JSON.parse(requests[10].options.body).layouts,['layout0']);
- assert.equal(JSON.parse(requests[10].options.body).crop_version,2);
  await user.click(screen.getByAltText('Day 1 source crop').closest('button'));
  requests[10].resolve(response({cards:[card('Recovered')],scan_id:'recovered'}));
  await waitFor(()=>screen.getByRole('heading',{name:'2 cards to review'}));

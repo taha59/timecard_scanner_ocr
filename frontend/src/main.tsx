@@ -109,7 +109,7 @@ function App(){
     if(!manifest||!supported)throw new Error('Device OCR needs a supported browser over HTTPS. You can still use manual entry.');
     if(!await modelPresent(manifest)){setModelReady(false);throw new Error('The saved model is no longer available. Download it again before scanning.');}
     const started=performance.now();let deviceStats:DeviceOcrStats|null=null;
-    form.append('device','true');form.append('live','true');form.append('crop_version','2');setProgress('Preparing crops on the server…');
+    form.append('device','true');form.append('live','true');setProgress('Preparing crops on the server…');
     const prepared=await api('/api/scan',{method:'POST',body:form,signal:controller.signal},timing=>{if(rev===revision.current)setPreparationTiming(timing);});
     const cropped=performance.now();
     const live=Array.isArray(prepared.card_tasks)&&prepared.card_tasks.length===prepared.layouts.length;
@@ -119,14 +119,14 @@ function App(){
      if(resultQueue.cards.length===1)setExpandedCards(previous=>({...previous,[String(index)]:true}));
     };
     const resultQueue=new LiveResults<Card>(async(job,signal)=>{
-     const result:Scan=await api('/api/device-result',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({layouts:[job.layout],readings:job.readings,crop_version:job.cropVersion}),signal},timing=>{if(abort.current?.signal===signal)setResultsTiming(previous=>addRequestTiming(previous,timing));},{retry:true});
+     const result:Scan=await api('/api/device-result',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({layouts:[job.layout],readings:job.readings}),signal},timing=>{if(abort.current?.signal===signal)setResultsTiming(previous=>addRequestTiming(previous,timing));},{retry:true});
      return {...result.cards[0],id:String(job.index)};
     });
     if(live){setLiveCardCount(prepared.layouts.length);setScanId(`live-${rev}`);unfinishedResults.current=resultQueue;}
     let readings;
     try{
      readings=await recognizeOnDevice(manifest,prepared.tasks,controller.signal,text=>{if(rev===revision.current)setProgress(text);},stats=>{deviceStats=stats;if(rev===revision.current)setReadingTiming(stats);},live?{cardTasks:prepared.card_tasks,onCard:(index,cardReadings)=>{
-      resultQueue.enqueue({index,layout:prepared.layouts[index],readings:cardReadings,cropVersion:prepared.crop_version},controller.signal,publish);
+      resultQueue.enqueue({index,layout:prepared.layouts[index],readings:cardReadings},controller.signal,publish);
      }}:undefined);
     }catch(e){controller.abort();await resultQueue.drain();throw e;}
     const recognized=performance.now();
@@ -138,7 +138,7 @@ function App(){
      data={cards:resultQueue.cards,scan_id:`live-${rev}`,manual:false,message:resultQueue.pendingCount?`${resultQueue.cards.length} of ${prepared.layouts.length} timecards are ready. ${resultQueue.pendingCount} unfinished results are kept in this tab. Retry them without running OCR again. ${resultQueue.lastError}`:'All timecards are ready. Review every entry against its source crop.'};
     }else{
      controller.signal.throwIfAborted();setProgress('Checking entries and calculating totals…');
-     data=await api('/api/device-result',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({layouts:prepared.layouts,readings,crop_version:prepared.crop_version}),signal:controller.signal},timing=>{if(rev===revision.current)setResultsTiming(timing);},{retry:true});
+     data=await api('/api/device-result',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({layouts:prepared.layouts,readings}),signal:controller.signal},timing=>{if(rev===revision.current)setResultsTiming(timing);},{retry:true});
     }
     if(rev===revision.current&&deviceStats){const stats=deviceStats as DeviceOcrStats;setScanTiming(`Total ${((performance.now()-started)/1000).toFixed(2)}s · Crop preparation ${((cropped-started)/1000).toFixed(2)}s · Model startup ${(stats.loadMs/1000).toFixed(2)}s${stats.reused?' (reused)':''} · Reading ${(stats.readMs/1000).toFixed(2)}s${stats.threads?` (${stats.threads} thread${stats.threads===1?'':'s'})`:''} · ${live?'Final results wait':'Results check'} ${((performance.now()-recognized)/1000).toFixed(2)}s · Browser reports ${navigator.hardwareConcurrency||1} CPU threads · ${modelLabel} · ${stats.processed}/${stats.total} crops read · ${stats.skipped} fallback crops skipped`);}
    }else data=await api('/api/scan',{method:'POST',body:form,signal:controller.signal});

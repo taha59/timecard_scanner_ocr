@@ -1,6 +1,6 @@
 import type {CropReading} from './ocr-policy';
 import {transientConnectionFailure} from './request-json';
-export type CardResultJob={index:number;layout:string;cropVersion?:number;readings:Record<string,CropReading>};
+export type CardResultJob={index:number;layout:string;readings:Record<string,CropReading>};
 
 // Jobs and recognized text live only in page memory. A failed request never
 // cancels OCR or invalidates the cards whose totals have already been checked.

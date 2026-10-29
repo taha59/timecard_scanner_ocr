@@ -5,7 +5,6 @@ import os
 import cv2
 import numpy as np
 from PIL import Image
-from .crop_policy import LEGACY_CROPS
 
 @dataclass
 class LayoutCard:
@@ -160,15 +159,11 @@ def tight_white(ink):
     return Image.fromarray(crop).convert('RGB').resize((crop.shape[1]*3,crop.shape[0]*3))
 
 
-def punch_bands(ink,policy=LEGACY_CROPS):
+def punch_bands(ink):
     # Search two bands in the first ~60% of a day: the remaining rules are unused.
     profile=np.count_nonzero(ink,axis=1).astype(float)
     profile=np.convolve(profile,np.ones(3)/3,mode='same')
-    h=ink.shape[0]
-    # Padded rows can carry ink from the previous day above the IN line.
-    # Ignore that margin while locating the first peak; keep it in the image.
-    stop=max(5,int(h*.29));start=min(stop-1,max(3,round(h*policy.first_peak_margin)))
-    first=int(np.argmax(profile[start:stop]))+start
+    h=ink.shape[0]; first=int(np.argmax(profile[3:max(5,int(h*.29))]))+3
     second=int(np.argmax(profile[int(h*.29):int(h*.60)]))+int(h*.29)
     # Cut in the whitespace between lines, not halfway between their darkest
     # strokes: a tall minute digit can extend well past that midpoint.
@@ -178,21 +173,18 @@ def punch_bands(ink,policy=LEGACY_CROPS):
     return [(0,split),(split,round(h*.64))]
 
 
-def punch_crops(ink,policy=LEGACY_CROPS):
-    return [tight_white(ink[a:b]) for a,b in punch_bands(ink,policy)]
+def punch_crops(ink):
+    return [tight_white(ink[a:b]) for a,b in punch_bands(ink)]
 
 
-def photo_punch_crops(cell,ink,policy=LEGACY_CROPS):
+def photo_punch_crops(cell,ink):
     """Preserve grayscale strokes for readers trained on photographic text."""
     result=[]
-    for index,(a,b) in enumerate(punch_bands(ink,policy)):
-        if index==1 and policy.original_out_limit<.64:b=max(a+12,min(b,round(cell.shape[0]*policy.original_out_limit)))
+    for a,b in punch_bands(ink):
         part=cell[a:b].copy()
         ys,xs=np.where(ink[a:b]>0)
         if len(xs):
-            part=part[max(0,ys.min()-2):ys.max()+3]
-            if not policy.preserve_original_width:
-                part=part[:,max(0,xs.min()-2):xs.max()+3]
+            part=part[max(0,ys.min()-2):ys.max()+3,max(0,xs.min()-2):xs.max()+3]
         part=cv2.copyMakeBorder(part,5,5,5,5,cv2.BORDER_CONSTANT,value=(255,255,255))
         result.append(Image.fromarray(cv2.cvtColor(part,cv2.COLOR_BGR2RGB)).resize(
             (part.shape[1]*3,part.shape[0]*3),Image.Resampling.BICUBIC))
@@ -208,7 +200,7 @@ def png_data(image,compress_level=6):
 
 def extract(image,recognizer,layouts=None,include_images=True,include_notes=True,include_auxiliary_images=True):
     """Keep legacy notes/previews optional for the app's punch-only review UI."""
-    cards=[];policy=getattr(recognizer,'crop_policy',LEGACY_CROPS)
+    cards=[]
     if layouts is None:layouts=detect_cards(image)
     if hasattr(recognizer,'prepare'):
         recognizer.prepare(layouts)
@@ -230,7 +222,7 @@ def extract(image,recognizer,layouts=None,include_images=True,include_notes=True
             status=('worked' if status_read and status_read.has_clock else 'off' if off_text=='off'
                     else 'blank' if guessed=='blank' and not (status_read and status_read.text.strip())
                     else 'worked')
-            punches=punch_crops(ink,policy)
+            punches=punch_crops(ink)
             values=(recognizer.read_punches(layout,di,punches) if hasattr(recognizer,'read_punches')
                     else [recognizer.read(p,'time') for p in punches]) if status=='worked' else []
             if status=='worked' and not any(value.text for value in values):
@@ -258,14 +250,14 @@ def extract(image,recognizer,layouts=None,include_images=True,include_notes=True
     return cards
 
 
-def focused_punch_crops(cell,ink,policy=LEGACY_CROPS):
+def focused_punch_crops(cell,ink):
     """A tighter line view for missing punches, excluding the handwritten total.
 
     This is an additional retry. The original crops remain available and win
     whenever they already contain a valid time.
     """
     result=[]
-    for index,(a,b) in enumerate(punch_bands(ink,policy)):
+    for index,(a,b) in enumerate(punch_bands(ink)):
         if index==1:b=max(a+12,min(b,round(cell.shape[0]*.52)))
         part=cell[a:b].copy();mask=ink[a:b]
         ys,xs=np.where(mask>0)
@@ -276,7 +268,7 @@ def focused_punch_crops(cell,ink,policy=LEGACY_CROPS):
     return result
 
 
-def label_edge_punch_crops(layout,day,policy=LEGACY_CROPS):
+def label_edge_punch_crops(layout,day):
     """Recover strokes against the printed strip without changing normal crops.
 
     The strip ends at normalized x=190; ordinary cells start at x=198.
@@ -289,8 +281,8 @@ def label_edge_punch_crops(layout,day,policy=LEGACY_CROPS):
     ink=clean_ink(cell)
     hsv=cv2.cvtColor(cell,cv2.COLOR_BGR2HSV)
     cell[cv2.inRange(hsv,(30,19,30),(105,255,255))>0]=255
-    crops=focused_punch_crops(cell,ink,policy)
-    bands=punch_bands(ink,policy)
+    crops=focused_punch_crops(cell,ink)
+    bands=punch_bands(ink)
     result=[]
     for index,(top,bottom) in enumerate(bands):
         if index==1:bottom=max(top+12,min(bottom,round(cell.shape[0]*.52)))

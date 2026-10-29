@@ -74,7 +74,7 @@ The first available employee is expanded by default. Completed cards stay viewab
 
 ## 3. Request and data flow: default device OCR
 
-Preparation returns a `crop_version`; the browser includes it in each result request and retry so both requests use the same crop geometry. Older tabs without a version keep the original geometry. The backend does not keep a scan object between requests. The browser sends normalized layouts back with OCR readings so the next request can rebuild the crops without a saved upload.
+The backend does not keep a scan object between requests. The browser sends normalized layouts back with OCR readings so the next request can rebuild the crops without a saved upload.
 
 ```mermaid
 sequenceDiagram
